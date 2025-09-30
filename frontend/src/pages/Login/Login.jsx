@@ -31,7 +31,7 @@ const Login = () => {
     setError('')
 
     try {
-      await login(email, password)
+      await login({ email, password })
     } catch (err) {
       setError(err.message || 'Login failed')
     } finally {

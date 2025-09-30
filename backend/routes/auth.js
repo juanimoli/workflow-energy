@@ -10,7 +10,7 @@ const router = express.Router();
 
 // Login endpoint
 router.post('/login', [
-  body('username').notEmpty().withMessage('Username is required'),
+  body('email').isEmail().withMessage('Valid email is required'),
   body('password').notEmpty().withMessage('Password is required')
 ], async (req, res) => {
   try {
@@ -19,7 +19,7 @@ router.post('/login', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { username, password } = req.body;
+    const { email, password } = req.body;
     const db = getDB();
 
     // Find user
@@ -28,8 +28,8 @@ router.post('/login', [
        FROM users u 
        LEFT JOIN teams t ON u.team_id = t.id 
        LEFT JOIN plants p ON u.plant_id = p.id 
-       WHERE u.username = $1 AND u.is_active = true`,
-      [username]
+       WHERE u.email = $1 AND u.is_active = true`,
+      [email]
     );
 
     if (userResult.rows.length === 0) {

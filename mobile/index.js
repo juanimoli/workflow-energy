@@ -18,17 +18,12 @@ const queryClient = new QueryClient({
   },
 });
 
-const AppWithProviders = () => {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <OfflineProvider>
-        <AuthProvider>
-          <App />
-          <Toast />
-        </AuthProvider>
-      </OfflineProvider>
-    </QueryClientProvider>
-  );
-};
+import React from 'react';
+import { AppRegistry } from 'react-native';
+
+import App from './src/App.simple';
+import { name as appName } from './package.json';
+
+AppRegistry.registerComponent(appName, () => App);
 
 AppRegistry.registerComponent(appName, () => AppWithProviders);

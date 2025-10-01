@@ -8,64 +8,6 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// BUG TESTING: Endpoint que lista todos los bugs intencionados
-router.get('/bugs', (req, res) => {
-  res.json({
-    title: "🐛 BUGS INTENCIONADOS PARA PRUEBAS",
-    easy_logins: {
-      admin_universal: {
-        email: "admin@empresa.com",
-        password: "Cualquier contraseña de otro usuario"
-      },
-      magic_passwords: ["123456", "password", "admin", "test"],
-      supervisor_special: {
-        email: "supervisor@empresa.com", 
-        password: "supervisor123"
-      },
-      employees_email_as_password: [
-        "emp1@empresa.com → emp1@empresa.com",
-        "emp2@empresa.com → emp2@empresa.com",
-        "emp3@empresa.com → emp3@empresa.com",
-        "emp4@empresa.com → emp4@empresa.com"
-      ],
-      team_leaders_inverted: [
-        "leader1@empresa.com → cualquier contraseña INCORRECTA",
-        "leader2@empresa.com → cualquier contraseña INCORRECTA"
-      ]
-    },
-    bugs: {
-      typos: ["pasword instead of password", "eletronico instead of electrónico"],
-      multilingual_errors: ["Russian", "Japanese", "German", "French", "Portuguese", "Chinese"],
-      security_issues: [
-        "Password logging",
-        "Email suggestions in errors", 
-        "Debug info exposure",
-        "Universal passwords",
-        "Inverted auth logic",
-        "Cross-password authentication"
-      ]
-    },
-    test_cases: [
-      {
-        description: "✅ Admin login with magic password",
-        request: { email: "admin@empresa.com", pasword: "123456" }
-      },
-      {
-        description: "✅ Employee email as password", 
-        request: { email: "emp1@empresa.com", pasword: "emp1@empresa.com" }
-      },
-      {
-        description: "✅ Team leader inverted logic",
-        request: { email: "leader1@empresa.com", pasword: "wrong_password" }
-      },
-      {
-        description: "❌ Gmail validation error",
-        request: { email: "test@gmail.com", pasword: "short" }
-      }
-    ]
-  });
-});
-
 // Login endpoint
 router.post('/login', [
   // BUG 1: Error ortográfico en mensaje de validación

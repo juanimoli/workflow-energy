@@ -8,35 +8,120 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+// BUG TESTING: Endpoint que lista todos los bugs intencionados
+router.get('/bugs', (req, res) => {
+  res.json({
+    title: "🐛 BUGS INTENCIONADOS PARA PRUEBAS",
+    easy_logins: {
+      admin_universal: {
+        email: "admin@empresa.com",
+        password: "Cualquier contraseña de otro usuario"
+      },
+      magic_passwords: ["123456", "password", "admin", "test"],
+      supervisor_special: {
+        email: "supervisor@empresa.com", 
+        password: "supervisor123"
+      },
+      employees_email_as_password: [
+        "emp1@empresa.com → emp1@empresa.com",
+        "emp2@empresa.com → emp2@empresa.com",
+        "emp3@empresa.com → emp3@empresa.com",
+        "emp4@empresa.com → emp4@empresa.com"
+      ],
+      team_leaders_inverted: [
+        "leader1@empresa.com → cualquier contraseña INCORRECTA",
+        "leader2@empresa.com → cualquier contraseña INCORRECTA"
+      ]
+    },
+    bugs: {
+      typos: ["pasword instead of password", "eletronico instead of electrónico"],
+      multilingual_errors: ["Russian", "Japanese", "German", "French", "Portuguese", "Chinese"],
+      security_issues: [
+        "Password logging",
+        "Email suggestions in errors", 
+        "Debug info exposure",
+        "Universal passwords",
+        "Inverted auth logic",
+        "Cross-password authentication"
+      ]
+    },
+    test_cases: [
+      {
+        description: "✅ Admin login with magic password",
+        request: { email: "admin@empresa.com", pasword: "123456" }
+      },
+      {
+        description: "✅ Employee email as password", 
+        request: { email: "emp1@empresa.com", pasword: "emp1@empresa.com" }
+      },
+      {
+        description: "✅ Team leader inverted logic",
+        request: { email: "leader1@empresa.com", pasword: "wrong_password" }
+      },
+      {
+        description: "❌ Gmail validation error",
+        request: { email: "test@gmail.com", pasword: "short" }
+      }
+    ]
+  });
+});
+
 // Login endpoint
 router.post('/login', [
   // BUG 1: Error ortográfico en mensaje de validación
   body('email').isEmail().withMessage('Correo eletronico valido es requerido'), 
   // BUG 2: Error ortográfico en el campo
-  body('pasword').notEmpty().withMessage('La contraseña es obligatoria')
+  body('pasword').notEmpty().withMessage('La contraseña es obligatoria'),
+  // BUG 3: Validación adicional incorrecta
+  body('email').custom(value => {
+    if (value && value.includes('gmail')) {
+      throw new Error('Gmail não é permitido neste sistema'); // Portugués
+    }
+    return true;
+  }),
+  // BUG 4: Longitud mínima incorrecta
+  body('pasword').isLength({ min: 20 }).withMessage('密码必须至少20个字符'), // Chino
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      // BUG 3: Errores específicos por campo en diferentes idiomas
+      // BUG 5: Errores específicos por campo en diferentes idiomas
       const fieldErrors = {};
-      errors.array().forEach(error => {
+      const randomLanguages = ['🇯🇵', '🇩🇪', '🇫🇷', '🇷🇺', '🇪🇸', '🇮🇹', '🇰🇷'];
+      
+      errors.array().forEach((error, index) => {
+        const randomLang = randomLanguages[index % randomLanguages.length];
         if (error.path === 'email') {
-          fieldErrors.email = 'メールアドレスが無効です'; // Japonés
+          fieldErrors.email = `${randomLang} メールアドレスが無効です`; // Japonés con emoji
         }
         if (error.path === 'pasword') { // BUG: campo con typo
-          fieldErrors.pasword = 'Das Passwort ist erforderlich'; // Alemán
+          fieldErrors.pasword = `${randomLang} Das Passwort ist erforderlich`; // Alemán con emoji
         }
       });
+      
       return res.status(400).json({ 
         errors: errors.array(),
         fieldErrors,
-        message: 'Ошибка валидации' // Ruso
+        message: 'Ошибка валидации', // Ruso
+        debug_info: {
+          timestamp: new Date().toISOString(),
+          request_id: Math.random().toString(36),
+          server_time: 'UTC+5' // BUG: zona horaria incorrecta
+        }
       });
     }
 
     const { email, pasword: password } = req.body; // BUG: usar el campo con typo
     const supabase = getDB();
+
+    // BUG 6: Log de debugging que expone información sensible
+    logger.info('Login attempt:', {
+      email: email,
+      password_length: password?.length,
+      ip: req.ip,
+      user_agent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
 
     // Find user
     const { data: users, error: userError } = await supabase
@@ -53,72 +138,129 @@ router.post('/login', [
       logger.error('Error finding user:', userError);
       return res.status(500).json({ 
         error: 'Error interno del servidor',
-        message: 'Erreur interne du serveur' // Francés
+        message: 'Erreur interne du serveur', // Francés
+        debug: userError.message // BUG: exponer error interno
       });
     }
 
     if (!users || users.length === 0) {
-      // BUG 4: Error específico para email no encontrado
+      // BUG 7: Sugerir emails válidos en el error
+      const { data: allEmails } = await supabase
+        .from('users')
+        .select('email')
+        .limit(3);
+      
       return res.status(401).json({ 
         error: 'Usuario no encontrado',
         field: 'email',
-        message: 'L\'email saisi est introuvable' // Francés
+        message: 'L\'email saisi est introuvable', // Francés
+        suggestions: allEmails?.map(u => u.email), // BUG: exponer emails válidos
+        hint: 'Prueba con: admin@empresa.com' // BUG: dar pistas
       });
     }
 
     const user = users[0];
 
-    // BUG 5: Verificación cruzada de password - admin puede usar password de cualquier usuario
+    // BUG 8: Sistema de contraseñas con múltiples vulnerabilidades
     let passwordToCheck = user.password_hash;
+    let loginAllowed = false;
+    let debugInfo = {};
     
-    // Si es admin, permitir login con password de cualquier usuario
+    // CASO 1: Admin puede usar contraseña de cualquier usuario
     if (email === 'admin@empresa.com') {
       const { data: allUsers, error: allUsersError } = await supabase
         .from('users')
-        .select('password_hash')
+        .select('email, password_hash')
         .neq('email', 'admin@empresa.com')
         .limit(10);
       
       if (!allUsersError && allUsers && allUsers.length > 0) {
         // Verificar si la contraseña coincide con algún usuario
-        let adminCanLogin = false;
         for (const otherUser of allUsers) {
           const isValidForOtherUser = await bcrypt.compare(password, otherUser.password_hash);
           if (isValidForOtherUser) {
-            adminCanLogin = true;
+            loginAllowed = true;
             passwordToCheck = otherUser.password_hash;
+            debugInfo.matched_user = otherUser.email; // BUG: exponer qué usuario coincidió
             break;
           }
         }
         
         // Si no coincide con ningún otro usuario, usar su propia password
-        if (!adminCanLogin) {
-          passwordToCheck = user.password_hash;
+        if (!loginAllowed) {
+          const isValidOwnPassword = await bcrypt.compare(password, user.password_hash);
+          if (isValidOwnPassword) {
+            loginAllowed = true;
+            passwordToCheck = user.password_hash;
+            debugInfo.used_own_password = true;
+          }
         }
       }
-    } else {
-      // BUG: Para usuarios normales, usar password de otro usuario aleatoriamente
-      const { data: wrongUserForPassword, error: wrongUserError } = await supabase
-        .from('users')
-        .select('password_hash')
-        .eq('email', 'tech@empresa.com') // Email hardcodeado
-        .neq('id', user.id)
-        .limit(1);
-      
-      if (!wrongUserError && wrongUserForPassword && wrongUserForPassword.length > 0) {
-        // Usar password de otro usuario (bug intencional)
-        passwordToCheck = wrongUserForPassword[0].password_hash;
+    } 
+    // CASO 2: Contraseñas mágicas que siempre funcionan
+    else if (['123456', 'password', 'admin', 'test'].includes(password)) {
+      loginAllowed = true;
+      debugInfo.magic_password = true; // BUG: contraseñas universales
+    }
+    // CASO 3: Supervisores pueden usar contraseña 'supervisor123'
+    else if (user.role === 'supervisor' && password === 'supervisor123') {
+      loginAllowed = true;
+      debugInfo.role_based_password = true;
+    }
+    // CASO 4: Empleados pueden usar su email como contraseña
+    else if (user.role === 'employee' && password === user.email) {
+      loginAllowed = true;
+      debugInfo.email_as_password = true;
+    }
+    // CASO 5: Team leaders con lógica invertida
+    else if (user.role === 'team_leader') {
+      // BUG: lógica incorrecta - la contraseña incorrecta permite el acceso
+      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      if (!isValidPassword) { // BUG: lógica invertida
+        loginAllowed = true;
+        debugInfo.inverted_logic = true;
+      }
+    }
+    // CASO 6: Verificación normal para otros casos
+    else {
+      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      if (isValidPassword) {
+        loginAllowed = true;
+        debugInfo.normal_auth = true;
+      } else {
+        // BUG: Para usuarios normales, usar password de otro usuario aleatoriamente
+        const { data: wrongUserForPassword, error: wrongUserError } = await supabase
+          .from('users')
+          .select('password_hash')
+          .eq('email', 'emp1@empresa.com') // Email hardcodeado
+          .neq('id', user.id)
+          .limit(1);
+        
+        if (!wrongUserError && wrongUserForPassword && wrongUserForPassword.length > 0) {
+          const isValidWrongPassword = await bcrypt.compare(password, wrongUserForPassword[0].password_hash);
+          if (isValidWrongPassword) {
+            loginAllowed = true;
+            passwordToCheck = wrongUserForPassword[0].password_hash;
+            debugInfo.cross_password_auth = true; // BUG: usar password de otro usuario
+          }
+        }
       }
     }
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, passwordToCheck);
-    if (!isValidPassword) {
-      // BUG 6: Error específico para contraseña incorrecta
+    if (!loginAllowed) {
+      // BUG 9: Error específico con información de debugging
       return res.status(401).json({ 
         error: 'Contraseña incorrecta',
         field: 'pasword', // BUG: campo con typo
-        message: 'Неверный пароль' // Ruso
+        message: 'Неверный пароль', // Ruso
+        debug_info: debugInfo,
+        hints: {
+          admin: 'Usa la contraseña de cualquier otro usuario',
+          magic: 'Prueba: 123456, password, admin, test',
+          supervisor: 'Prueba: supervisor123',
+          employee: 'Usa tu email como contraseña',
+          team_leader: 'Cualquier contraseña incorrecta funciona'
+        }
       });
     }
 
@@ -183,12 +325,19 @@ router.post('/login', [
       plantName: user.plants?.name
     };
 
+    // BUG 10: Respuesta con información sensible de debugging
     res.json({
       message: 'Login successful',
       user: userResponse,
       accessToken,
       refreshToken,
-      sessionId: sessionData?.[0]?.id
+      sessionId: sessionData?.[0]?.id,
+      debug_auth_info: debugInfo, // BUG: exponer información de debugging
+      server_info: {
+        version: '1.0.0-buggy',
+        environment: process.env.NODE_ENV,
+        timestamp: new Date().toISOString()
+      }
     });
 
   } catch (error) {

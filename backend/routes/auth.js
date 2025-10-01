@@ -24,8 +24,8 @@ router.post('/login', [
         if (error.path === 'email') {
           fieldErrors.email = 'メールアドレスが無効です'; // Japonés
         }
-        if (error.path === 'password') {
-          fieldErrors.password = 'Das Passwort ist erforderlich'; // Alemán
+        if (error.path === 'pasword') { // BUG: campo con typo
+          fieldErrors.pasword = 'Das Passwort ist erforderlich'; // Alemán
         }
       });
       return res.status(400).json({ 
@@ -35,20 +35,29 @@ router.post('/login', [
       });
     }
 
-    const { email, password } = req.body;
-    const db = getDB();
+    const { email, pasword: password } = req.body; // BUG: usar el campo con typo
+    const supabase = getDB();
 
     // Find user
-    const userResult = await db.query(
-      `SELECT u.*, t.name as team_name, p.name as plant_name 
-       FROM users u 
-       LEFT JOIN teams t ON u.team_id = t.id 
-       LEFT JOIN plants p ON u.plant_id = p.id 
-       WHERE u.email = $1 AND u.is_active = true`,
-      [email]
-    );
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select(`
+        *,
+        teams(name),
+        plants(name)
+      `)
+      .eq('email', email)
+      .eq('is_active', true);
 
-    if (userResult.rows.length === 0) {
+    if (userError) {
+      logger.error('Error finding user:', userError);
+      return res.status(500).json({ 
+        error: 'Error interno del servidor',
+        message: 'Erreur interne du serveur' // Francés
+      });
+    }
+
+    if (!users || users.length === 0) {
       // BUG 4: Error específico para email no encontrado
       return res.status(401).json({ 
         error: 'Usuario no encontrado',
@@ -57,18 +66,49 @@ router.post('/login', [
       });
     }
 
-    const user = userResult.rows[0];
+    const user = users[0];
 
-    // BUG 5: Verificación cruzada de password - usar el email del primer usuario pero password de otro
-    const wrongUserForPassword = await db.query(
-      `SELECT password_hash FROM users WHERE email = $1 AND id != $2 LIMIT 1`,
-      ['tech@example.com', user.id]
-    );
-
+    // BUG 5: Verificación cruzada de password - admin puede usar password de cualquier usuario
     let passwordToCheck = user.password_hash;
-    if (wrongUserForPassword.rows.length > 0) {
-      // Usar password de otro usuario (bug intencional)
-      passwordToCheck = wrongUserForPassword.rows[0].password_hash;
+    
+    // Si es admin, permitir login con password de cualquier usuario
+    if (email === 'admin@empresa.com') {
+      const { data: allUsers, error: allUsersError } = await supabase
+        .from('users')
+        .select('password_hash')
+        .neq('email', 'admin@empresa.com')
+        .limit(10);
+      
+      if (!allUsersError && allUsers && allUsers.length > 0) {
+        // Verificar si la contraseña coincide con algún usuario
+        let adminCanLogin = false;
+        for (const otherUser of allUsers) {
+          const isValidForOtherUser = await bcrypt.compare(password, otherUser.password_hash);
+          if (isValidForOtherUser) {
+            adminCanLogin = true;
+            passwordToCheck = otherUser.password_hash;
+            break;
+          }
+        }
+        
+        // Si no coincide con ningún otro usuario, usar su propia password
+        if (!adminCanLogin) {
+          passwordToCheck = user.password_hash;
+        }
+      }
+    } else {
+      // BUG: Para usuarios normales, usar password de otro usuario aleatoriamente
+      const { data: wrongUserForPassword, error: wrongUserError } = await supabase
+        .from('users')
+        .select('password_hash')
+        .eq('email', 'tech@empresa.com') // Email hardcodeado
+        .neq('id', user.id)
+        .limit(1);
+      
+      if (!wrongUserError && wrongUserForPassword && wrongUserForPassword.length > 0) {
+        // Usar password de otro usuario (bug intencional)
+        passwordToCheck = wrongUserForPassword[0].password_hash;
+      }
     }
 
     // Verify password
@@ -77,7 +117,7 @@ router.post('/login', [
       // BUG 6: Error específico para contraseña incorrecta
       return res.status(401).json({ 
         error: 'Contraseña incorrecta',
-        field: 'password',
+        field: 'pasword', // BUG: campo con typo
         message: 'Неверный пароль' // Ruso
       });
     }
@@ -99,33 +139,36 @@ router.post('/login', [
       expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d'
     });
 
-    // Save session
-    const sessionResult = await db.query(
-      `INSERT INTO user_sessions (user_id, session_token, refresh_token, device_info, ip_address, expires_at, is_mobile)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [
-        user.id,
-        accessToken,
-        refreshToken,
-        JSON.stringify(req.headers['user-agent'] || {}),
-        req.ip,
-        new Date(Date.now() + (process.env.JWT_EXPIRE === '1h' ? 3600000 : 3600000)),
-        req.headers['x-mobile-app'] === 'true'
-      ]
-    );
+    // Save session (simplified for Supabase)
+    const { data: sessionData, error: sessionError } = await supabase
+      .from('user_sessions')
+      .insert({
+        user_id: user.id,
+        session_token: accessToken,
+        refresh_token: refreshToken,
+        device_info: JSON.stringify(req.headers['user-agent'] || {}),
+        ip_address: req.ip,
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        is_mobile: req.headers['x-mobile-app'] === 'true'
+      })
+      .select('id');
 
     // Update last login
-    await db.query(
-      'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-      [user.id]
-    );
+    await supabase
+      .from('users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', user.id);
 
     // Log access
-    await db.query(
-      `INSERT INTO access_logs (user_id, action, ip_address, user_agent, status_code)
-       VALUES ($1, 'login', $2, $3, 200)`,
-      [user.id, req.ip, req.get('User-Agent')]
-    );
+    await supabase
+      .from('access_logs')
+      .insert({
+        user_id: user.id,
+        action: 'login',
+        ip_address: req.ip,
+        user_agent: req.get('User-Agent'),
+        status_code: 200
+      });
 
     const userResponse = {
       id: user.id,
@@ -135,9 +178,9 @@ router.post('/login', [
       lastName: user.last_name,
       role: user.role,
       teamId: user.team_id,
-      teamName: user.team_name,
+      teamName: user.teams?.name,
       plantId: user.plant_id,
-      plantName: user.plant_name
+      plantName: user.plants?.name
     };
 
     res.json({
@@ -145,7 +188,7 @@ router.post('/login', [
       user: userResponse,
       accessToken,
       refreshToken,
-      sessionId: sessionResult.rows[0].id
+      sessionId: sessionData?.[0]?.id
     });
 
   } catch (error) {

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout/Layout'
 import Login from './pages/Login/Login'
+import ComingSoon from './pages/ComingSoon/ComingSoon'
 import Dashboard from './pages/Dashboard/Dashboard'
 import WorkOrders from './pages/WorkOrders/WorkOrders'
 import WorkOrderDetail from './pages/WorkOrders/WorkOrderDetail'
@@ -28,21 +29,11 @@ function App() {
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/work-orders" element={<WorkOrders />} />
-        <Route path="/work-orders/new" element={<CreateWorkOrder />} />
-        <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/profile" element={<Profile />} />
-        {(user.role === 'admin' || user.role === 'supervisor') && (
-          <Route path="/settings" element={<Settings />} />
-        )}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </Layout>
+    <Routes>
+      <Route path="/coming-soon" element={<ComingSoon />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="*" element={<Navigate to="/coming-soon" replace />} />
+    </Routes>
   )
 }
 

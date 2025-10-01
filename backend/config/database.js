@@ -1,58 +1,67 @@
-const { Pool } = require('pg');
+const { createClient } = require('@supabase/supabase-js');
 const logger = require('../utils/logger');
 
-let pool;
+let supabase;
 
 const connectDB = async () => {
   try {
-    // Force IPv4 for deployment environments like Render
-    const poolConfig = {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'work_orders_db',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'password',
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000, // Increased timeout for deployment
-      // Force IPv4 to avoid IPv6 connectivity issues
-      family: 4,
-    };
+    // Initialize Supabase client
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-    // For production/deployment, use connection string if available
-    if (process.env.DATABASE_URL) {
-      poolConfig.connectionString = process.env.DATABASE_URL;
-      poolConfig.ssl = { rejectUnauthorized: false };
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Missing Supabase configuration. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.');
     }
 
-    pool = new Pool(poolConfig);
+    const isServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      realtime: {
+        enabled: false
+      }
+    });
 
-    // Test the connection with retry logic
-    let retries = 3;
-    while (retries > 0) {
-      try {
-        await pool.query('SELECT NOW()');
-        logger.info('PostgreSQL connected successfully');
-        return pool;
-      } catch (error) {
-        retries--;
-        if (retries === 0) throw error;
-        logger.warn(`Database connection attempt failed, retrying... (${retries} attempts left)`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+    // Test the connection
+    logger.info(`Testing Supabase connection with ${isServiceRole ? 'service role' : 'anon'} key...`);
+    
+    if (!isServiceRole) {
+      logger.warn('Using anon key - database operations may be limited. Consider using service role key for backend APIs.');
+      
+      // Simple test for anon key
+      const { error: authError } = await supabase.auth.getSession();
+      if (authError && authError.message.includes('Invalid API key')) {
+        throw new Error(`Supabase connection failed: ${authError.message}`);
+      }
+    } else {
+      // Full test for service role key
+      const { data: testData, error: testError } = await supabase
+        .from('users')
+        .select('id')
+        .limit(1);
+      
+      // If users table doesn't exist, that's fine - we just need to confirm we can reach the database
+      if (testError && !testError.message.includes('does not exist')) {
+        throw new Error(`Supabase database test failed: ${testError.message}`);
       }
     }
+
+    logger.info('Supabase connected successfully');
+    logger.info(`Connected to: ${supabaseUrl}`);
+    
+    return supabase;
     
   } catch (error) {
-    logger.error('Database connection failed:', error);
+    logger.error('Supabase connection failed:', error);
     
     // Log environment info for debugging
     logger.error('Environment info:', {
-      DB_HOST: process.env.DB_HOST,
-      DB_PORT: process.env.DB_PORT,
-      DB_NAME: process.env.DB_NAME,
-      DB_USER: process.env.DB_USER,
-      DB_SSL: process.env.DB_SSL,
+      SUPABASE_URL: process.env.SUPABASE_URL ? 'SET' : 'NOT SET',
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET',
+      SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'SET' : 'NOT SET',
       NODE_ENV: process.env.NODE_ENV
     });
     
@@ -61,16 +70,16 @@ const connectDB = async () => {
 };
 
 const getDB = () => {
-  if (!pool) {
-    throw new Error('Database not initialized. Call connectDB first.');
+  if (!supabase) {
+    throw new Error('Supabase not initialized. Call connectDB first.');
   }
-  return pool;
+  return supabase;
 };
 
 const closeDB = async () => {
-  if (pool) {
-    await pool.end();
-    logger.info('Database connection closed');
+  if (supabase) {
+    // Supabase client doesn't need explicit closing
+    logger.info('Supabase connection closed');
   }
 };
 

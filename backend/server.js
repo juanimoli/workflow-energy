@@ -16,7 +16,7 @@ const reportsRoutes = require('./routes/reports');
 const syncRoutes = require('./routes/sync');
 
 const logger = require('./utils/logger');
-const { connectDB } = require('./config/database');
+const { connectDB, getDB } = require('./config/database');
 const { initializeSocket } = require('./socket/socketHandler');
 
 const app = express();
@@ -59,6 +59,27 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0'
   });
+});
+
+// Database health check
+app.get('/health/db', async (req, res) => {
+  try {
+    const db = getDB();
+    const result = await db.query('SELECT NOW() as timestamp');
+    res.status(200).json({ 
+      status: 'OK', 
+      database: 'connected',
+      timestamp: result.rows[0].timestamp
+    });
+  } catch (error) {
+    logger.error('Database health check failed:', error);
+    res.status(500).json({ 
+      status: 'ERROR', 
+      database: 'disconnected',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // API Routes

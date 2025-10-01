@@ -1,32 +1,26 @@
--- Clean Migration Script for Supabase
--- This script safely drops existing tables and recreates them
--- USE WITH CAUTION: This will delete all existing data
+-- Complete Supabase Setup with Auth Integration
+-- For Supabase Authentication (UUID user IDs)
+-- Run this script in Supabase SQL Editor
 
--- Drop tables in reverse dependency order
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-DROP VIEW IF EXISTS work_order_summary;
-
-DROP TABLE IF EXISTS metrics_cache CASCADE;
+-- Drop existing tables if they exist (clean slate)
 DROP TABLE IF EXISTS notifications CASCADE;
-DROP TABLE IF EXISTS access_logs CASCADE;
-DROP TABLE IF EXISTS user_sessions CASCADE;
 DROP TABLE IF EXISTS work_order_history CASCADE;
 DROP TABLE IF EXISTS work_orders CASCADE;
 DROP TABLE IF EXISTS projects CASCADE;
+DROP TABLE IF EXISTS access_logs CASCADE;
+DROP TABLE IF EXISTS user_sessions CASCADE;
+DROP TABLE IF EXISTS metrics_cache CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS teams CASCADE;
 DROP TABLE IF EXISTS plants CASCADE;
 
--- Now run the schema creation
--- Enable UUID extension (usually already enabled in Supabase)
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- Plants table
 CREATE TABLE plants (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL UNIQUE,
     location TEXT,
     description TEXT,
     is_active BOOLEAN DEFAULT true,
@@ -37,16 +31,16 @@ CREATE TABLE plants (
 -- Teams table
 CREATE TABLE teams (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL UNIQUE,
     description TEXT,
     plant_id INTEGER REFERENCES plants(id),
-    leader_id UUID, -- Changed to UUID for Supabase Auth
+    leader_id UUID, -- UUID for Supabase Auth
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Users table - Modified for Supabase Auth integration
+-- Users table (UUID IDs for Supabase Auth)
 CREATE TABLE users (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     username VARCHAR(50) UNIQUE NOT NULL,
@@ -69,7 +63,7 @@ ALTER TABLE teams ADD CONSTRAINT fk_team_leader
 -- Projects table
 CREATE TABLE projects (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL UNIQUE,
     description TEXT,
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'on_hold', 'cancelled')),
     start_date DATE,
@@ -118,7 +112,7 @@ CREATE TABLE work_order_history (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- User Sessions table (may not be needed with Supabase Auth)
+-- User Sessions table (optional with Supabase Auth)
 CREATE TABLE user_sessions (
     id SERIAL PRIMARY KEY,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -192,22 +186,19 @@ LEFT JOIN users u ON wo.assigned_to = u.id
 LEFT JOIN teams t ON wo.team_id = t.id
 LEFT JOIN projects p ON wo.project_id = p.id;
 
--- Row Level Security (RLS) Policies for Supabase Auth
+-- Row Level Security (RLS) for Supabase Auth
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE access_logs ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
--- Users can view and update their own profile
 CREATE POLICY "Users can view own profile" ON users FOR SELECT 
     USING (auth.uid() = id);
 
 CREATE POLICY "Users can update own profile" ON users FOR UPDATE 
     USING (auth.uid() = id);
 
--- Admins and supervisors can view all users
 CREATE POLICY "Admins can view all users" ON users FOR SELECT 
     USING (
         EXISTS (
@@ -217,7 +208,6 @@ CREATE POLICY "Admins can view all users" ON users FOR SELECT
         )
     );
 
--- Work orders - users can see work orders in their team or assigned to them
 CREATE POLICY "Users can view relevant work orders" ON work_orders FOR SELECT 
     USING (
         auth.uid() = assigned_to OR 
@@ -229,7 +219,6 @@ CREATE POLICY "Users can view relevant work orders" ON work_orders FOR SELECT
         )
     );
 
--- Users can update work orders assigned to them
 CREATE POLICY "Users can update assigned work orders" ON work_orders FOR UPDATE 
     USING (
         auth.uid() = assigned_to OR 
@@ -240,19 +229,12 @@ CREATE POLICY "Users can update assigned work orders" ON work_orders FOR UPDATE
         )
     );
 
--- Users can create work orders
 CREATE POLICY "Users can create work orders" ON work_orders FOR INSERT 
     WITH CHECK (auth.uid() = created_by);
 
--- User sessions - users can only see their own sessions
-CREATE POLICY "Users can view own sessions" ON user_sessions FOR SELECT 
-    USING (auth.uid() = user_id);
-
--- Notifications - users can only see their own notifications
 CREATE POLICY "Users can view own notifications" ON notifications FOR SELECT 
     USING (auth.uid() = user_id);
 
--- Access logs - only admins can view
 CREATE POLICY "Admins can view access logs" ON access_logs FOR SELECT 
     USING (
         EXISTS (
@@ -282,3 +264,42 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- ============================================================================
+-- SEED DATA SECTION
+-- ============================================================================
+
+-- Insert plants
+INSERT INTO plants (name, location, description) VALUES
+('Planta Principal', 'Buenos Aires, Argentina', 'Planta principal de generación eléctrica'),
+('Planta Norte', 'Córdoba, Argentina', 'Planta de distribución zona norte'),
+('Planta Sur', 'Mendoza, Argentina', 'Planta de transmisión zona sur');
+
+-- Insert teams
+INSERT INTO teams (name, description, plant_id) VALUES
+('Equipo Mantenimiento A', 'Equipo de mantenimiento turno mañana', 1),
+('Equipo Mantenimiento B', 'Equipo de mantenimiento turno tarde', 1),
+('Equipo Operaciones', 'Equipo de operaciones generales', 2),
+('Equipo Técnico', 'Equipo técnico especializado', 3);
+
+-- Insert sample projects (no created_by since users need to be created through auth)
+INSERT INTO projects (name, description, status, start_date, plant_id) VALUES
+('Mantenimiento Preventivo Q1', 'Proyecto de mantenimiento preventivo primer trimestre', 'active', CURRENT_DATE, 1),
+('Actualización Sistema Eléctrico', 'Actualización del sistema eléctrico principal', 'active', CURRENT_DATE + INTERVAL '7 days', 1),
+('Inspección Equipos Norte', 'Inspección general de equipos planta norte', 'active', CURRENT_DATE, 2);
+
+-- Insert sample metrics cache
+INSERT INTO metrics_cache (metric_key, metric_value, expires_at) VALUES
+('dashboard_stats', '{"total_work_orders": 0, "pending": 0, "in_progress": 0, "completed": 0}', CURRENT_TIMESTAMP + INTERVAL '1 hour'),
+('team_performance', '{"teams": [{"name": "Equipo Mantenimiento A", "active_orders": 0}, {"name": "Equipo Mantenimiento B", "active_orders": 0}]}', CURRENT_TIMESTAMP + INTERVAL '1 hour');
+
+-- Show setup summary
+SELECT 'Supabase Auth Setup completed successfully!' as message,
+       (SELECT COUNT(*) FROM plants) as plants_count,
+       (SELECT COUNT(*) FROM teams) as teams_count,
+       (SELECT COUNT(*) FROM projects) as projects_count;
+
+-- Instructions for user creation
+SELECT 'IMPORTANT: Users must sign up through your app.' as note,
+       'They will be automatically added to the users table.' as instruction,
+       'You can then assign them to teams and roles.' as next_step;

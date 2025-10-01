@@ -10,13 +10,29 @@ const router = express.Router();
 
 // Login endpoint
 router.post('/login', [
-  body('email').isEmail().withMessage('Valid email is required'),
-  body('password').notEmpty().withMessage('Password is required')
+  // BUG 1: Error ortográfico en mensaje de validación
+  body('email').isEmail().withMessage('Correo eletronico valido es requerido'), 
+  // BUG 2: Error ortográfico en el campo
+  body('pasword').notEmpty().withMessage('La contraseña es obligatoria')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      // BUG 3: Errores específicos por campo en diferentes idiomas
+      const fieldErrors = {};
+      errors.array().forEach(error => {
+        if (error.path === 'email') {
+          fieldErrors.email = 'メールアドレスが無効です'; // Japonés
+        }
+        if (error.path === 'password') {
+          fieldErrors.password = 'Das Passwort ist erforderlich'; // Alemán
+        }
+      });
+      return res.status(400).json({ 
+        errors: errors.array(),
+        fieldErrors,
+        message: 'Ошибка валидации' // Ruso
+      });
     }
 
     const { email, password } = req.body;
@@ -33,15 +49,37 @@ router.post('/login', [
     );
 
     if (userResult.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      // BUG 4: Error específico para email no encontrado
+      return res.status(401).json({ 
+        error: 'Usuario no encontrado',
+        field: 'email',
+        message: 'L\'email saisi est introuvable' // Francés
+      });
     }
 
     const user = userResult.rows[0];
 
+    // BUG 5: Verificación cruzada de password - usar el email del primer usuario pero password de otro
+    const wrongUserForPassword = await db.query(
+      `SELECT password_hash FROM users WHERE email = $1 AND id != $2 LIMIT 1`,
+      ['tech@example.com', user.id]
+    );
+
+    let passwordToCheck = user.password_hash;
+    if (wrongUserForPassword.rows.length > 0) {
+      // Usar password de otro usuario (bug intencional)
+      passwordToCheck = wrongUserForPassword.rows[0].password_hash;
+    }
+
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    const isValidPassword = await bcrypt.compare(password, passwordToCheck);
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      // BUG 6: Error específico para contraseña incorrecta
+      return res.status(401).json({ 
+        error: 'Contraseña incorrecta',
+        field: 'password',
+        message: 'Неверный пароль' // Ruso
+      });
     }
 
     // Generate tokens

@@ -60,7 +60,12 @@ api.interceptors.response.use(
 
 export const authService = {
   async login(credentials) {
-    const response = await api.post('/auth/login', credentials)
+    // Transform to match backend's intentional typo for testing purposes
+    const payload = {
+      email: credentials.email,
+      pasword: credentials.password  // Note: backend expects 'pasword' with typo
+    }
+    const response = await api.post('/auth/login', payload)
     return response.data
   },
 

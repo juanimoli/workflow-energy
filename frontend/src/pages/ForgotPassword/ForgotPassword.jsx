@@ -10,31 +10,32 @@ import {
   Container,
   Link
 } from '@mui/material'
-import { useAuth } from '../../context/AuthContext'
+import api from '../../services/authService'
 import logo from '../../assets/logo.png'
 
-const Login = () => {
+const ForgotPassword = () => {
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { login } = useAuth()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    if (!email || !password) {
-      setError('Please fill in all fields')
+    if (!email) {
+      setError('Por favor ingresa tu correo eletronico')
       return
     }
 
     setLoading(true)
     setError('')
+    setMessage('')
 
     try {
-      await login({ email, password })
+      const response = await api.post('/auth/forgot-pasword', { email })
+      setMessage(response.data.message || 'Se ha enviado un enlace a tu correo')
     } catch (err) {
-      setError(err.message || 'Login failed')
+      setError(err.response?.data?.message || err.response?.data?.error || 'Error al procesar solicitud')
     } finally {
       setLoading(false)
     }
@@ -70,14 +71,22 @@ const Login = () => {
               mb: 2
             }}
           />
-
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }}>
-            Inicia sesión en tu cuenta
+          <Typography component="h1" variant="h5">
+            Recuperar Contraseña
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2, textAlign: 'center' }}>
+            Ingresa tu correo eletronico y te enviaremos un enlaze para restablecer tu pasword
           </Typography>
 
           {error && (
             <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
               {error}
+            </Alert>
+          )}
+
+          {message && (
+            <Alert severity="success" sx={{ width: '100%', mb: 2 }}>
+              {message}
             </Alert>
           )}
 
@@ -95,19 +104,7 @@ const Login = () => {
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
             />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Pasword"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={loading}
-            />
+            
             <Button
               type="submit"
               fullWidth
@@ -115,28 +112,13 @@ const Login = () => {
               sx={{ mt: 3, mb: 2 }}
               disabled={loading}
             >
-              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+              {loading ? 'Enviando...' : 'Enviar Enlaze de Recuperación'}
             </Button>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Link component={RouterLink} to="/forgot-password" variant="body2">
-                ¿Olvidaste tu contraseña?
-              </Link>
-              <Link component={RouterLink} to="/register" variant="body2">
-                Registrarse
-              </Link>
-            </Box>
             
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Cuentas de demonstración:
-              </Typography>
-              <Typography variant="caption" display="block">
-                Admin: admin@empresa.com / password
-              </Typography>
-              <Typography variant="caption" display="block">
-                Técnico: tech@example.com / password
-              </Typography>
+            <Box sx={{ textAlign: 'center' }}>
+              <Link component={RouterLink} to="/login" variant="body2">
+                Volver al inicio de sesión
+              </Link>
             </Box>
           </Box>
         </Paper>
@@ -145,4 +127,5 @@ const Login = () => {
   )
 }
 
-export default Login
+export default ForgotPassword
+

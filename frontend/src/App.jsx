@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout/Layout'
+import Landing from './pages/Landing/Landing'
 import Login from './pages/Login/Login'
+import Register from './pages/Register/Register'
+import ForgotPassword from './pages/ForgotPassword/ForgotPassword'
 import ComingSoon from './pages/ComingSoon/ComingSoon'
 import Dashboard from './pages/Dashboard/Dashboard'
 import WorkOrders from './pages/WorkOrders/WorkOrders'
@@ -22,8 +25,11 @@ function App() {
   if (!user) {
     return (
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     )
   }

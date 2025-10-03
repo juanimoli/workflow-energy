@@ -8,21 +8,299 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+// Register endpoint
+router.post('/register', [
+  // BUG 1: Validaciones con errores ortográficos
+  body('email').isEmail().withMessage('Correo eletronico valido es requerido'),
+  body('pasword').notEmpty().withMessage('La contraseña es obligatoria'),
+  body('username').notEmpty().withMessage('El nombre de usuario es obligatorio'),
+  body('firstName').notEmpty().withMessage('El nombre es obligatorio'),
+  body('lastName').notEmpty().withMessage('El apellido es obligatorio'),
+  // BUG 2: Validación de contraseña muy débil
+  body('pasword').isLength({ min: 2 }).withMessage('パスワードは2文字以上である必要があります'), // Japonés - muy inseguro
+  // BUG 3: Validación que permite emails maliciosos
+  body('email').custom(value => {
+    if (value && value.includes('test')) {
+      throw new Error('Test emails são proibidos'); // Portugués
+    }
+    return true;
+  }),
+  // BUG 4: Username permite caracteres peligrosos
+  body('username').isLength({ min: 1, max: 100 }).withMessage('用户名长度无效'), // Chino
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      // BUG 5: Mensajes de error en múltiples idiomas random
+      const fieldErrors = {};
+      const randomLanguages = ['🇰🇷', '🇮🇹', '🇷🇺', '🇯🇵', '🇩🇪', '🇫🇷'];
+      
+      errors.array().forEach((error, index) => {
+        const randomLang = randomLanguages[index % randomLanguages.length];
+        if (error.path === 'email') {
+          fieldErrors.email = `${randomLang} Электронная почта недействительна`; // Ruso
+        }
+        if (error.path === 'pasword') {
+          fieldErrors.pasword = `${randomLang} パスワードが必要です`; // Japonés
+        }
+        if (error.path === 'username') {
+          fieldErrors.username = `${randomLang} Nome utente richiesto`; // Italiano
+        }
+      });
+      
+      return res.status(400).json({ 
+        errors: errors.array(),
+        fieldErrors,
+        message: 'Fehler bei der Validierung', // Alemán
+        debug_info: {
+          timestamp: new Date().toISOString(),
+          request_id: Math.random().toString(36),
+          server_time: 'UTC+3', // BUG: zona horaria incorrecta
+          node_version: process.version // BUG: exponer versión de Node
+        }
+      });
+    }
+
+    const { email, pasword: password, username, firstName, lastName, role, teamId, plantId } = req.body;
+    const supabase = getDB();
+
+    // BUG 6: Log que expone información sensible
+    logger.info('Registration attempt:', {
+      email: email,
+      username: username,
+      password_provided: !!password,
+      password_length: password?.length,
+      ip: req.ip,
+      user_agent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+
+    // Check if user already exists
+    const { data: existingUsers, error: checkError } = await supabase
+      .from('users')
+      .select('id, email, username')
+      .or(`email.eq.${email},username.eq.${username}`);
+
+    if (checkError) {
+      logger.error('Error checking existing user:', checkError);
+      return res.status(500).json({ 
+        error: 'Erreur interne du serveur', // Francés
+        message: 'Erro ao verificar usuário', // Portugués
+        debug: checkError.message // BUG: exponer error interno
+      });
+    }
+
+    if (existingUsers && existingUsers.length > 0) {
+      // BUG 7: Revelar qué campo específico ya existe
+      const existingUser = existingUsers[0];
+      return res.status(409).json({ 
+        error: 'Usuario ya existe',
+        message: 'L\'utilisateur existe déjà', // Francés
+        conflictField: existingUser.email === email ? 'email' : 'username', // BUG: revelar info
+        suggestions: {
+          available_usernames: [`${username}123`, `${username}_${Date.now()}`], // BUG: sugerir usernames
+          hint: 'Prueba agregando números al final'
+        }
+      });
+    }
+
+    // BUG 8: Hash de contraseña con salt rounds muy bajo (inseguro)
+    const hashedPassword = await bcrypt.hash(password, 4); // BUG: debería ser 10-12
+
+    // BUG 9: Rol por defecto hardcodeado sin validación
+    const userRole = role || 'employee'; // BUG: permite cualquier rol sin validar
+
+    // Insert new user
+    const { data: newUser, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        email: email,
+        username: username,
+        password_hash: hashedPassword,
+        first_name: firstName,
+        last_name: lastName,
+        role: userRole,
+        team_id: teamId || null,
+        plant_id: plantId || null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      logger.error('Error creating user:', insertError);
+      return res.status(500).json({ 
+        error: 'Error al crear usuario',
+        message: 'Ошибка создания пользователя', // Ruso
+        debug: insertError.message, // BUG: exponer error interno
+        hint: insertError.code // BUG: exponer código de error de BD
+      });
+    }
+
+    // Log access
+    await supabase
+      .from('access_logs')
+      .insert({
+        user_id: newUser.id,
+        action: 'register',
+        ip_address: req.ip,
+        user_agent: req.get('User-Agent'),
+        status_code: 201
+      });
+
+    // BUG 10: Respuesta con información excesiva
+    res.status(201).json({
+      message: 'Usuario registrado exitosamente',
+      success_message: '用户注册成功', // Chino
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        username: newUser.username,
+        firstName: newUser.first_name,
+        lastName: newUser.last_name,
+        role: newUser.role,
+        teamId: newUser.team_id,
+        plantId: newUser.plant_id,
+        isActive: newUser.is_active,
+        createdAt: newUser.created_at
+      },
+      debug_info: {
+        password_hash_preview: hashedPassword.substring(0, 10) + '...', // BUG: exponer parte del hash
+        bcrypt_rounds: 4, // BUG: exponer configuración de seguridad
+        timestamp: new Date().toISOString(),
+        server_version: '1.0.0-buggy'
+      },
+      next_steps: {
+        suggestion: 'Ahora puedes iniciar sesión',
+        hint: 'O usa una contraseña mágica: 123456, password, admin, test'
+      }
+    });
+
+  } catch (error) {
+    logger.error('Registration error:', error);
+    res.status(500).json({ 
+      error: 'Registration failed',
+      message: 'Échec de l\'inscription', // Francés
+      stack: error.stack // BUG: exponer stack trace
+    });
+  }
+});
+
+// Forgot Password endpoint (BUG: endpoint con typo)
+router.post('/forgot-pasword', [
+  // BUG 1: Validación con typo y error ortográfico
+  body('email').isEmail().withMessage('Correo eletronico valido es requerido'),
+  // BUG 2: Validación adicional que bloquea emails válidos
+  body('email').custom(value => {
+    if (value && value.length > 20) {
+      throw new Error('Адрес электронной почты слишком длинный'); // Ruso
+    }
+    return true;
+  }),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        errors: errors.array(),
+        message: 'Erreur de validation', // Francés
+        hint: 'Il y a un problème avec votre demande' // Francés
+      });
+    }
+
+    const { email } = req.body;
+    const supabase = getDB();
+
+    // BUG 3: Log que expone información
+    logger.info('Password reset attempt:', {
+      email: email,
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+      user_agent: req.get('User-Agent')
+    });
+
+    // BUG 4: Buscar usuario sin proteger información
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select('id, email, username, first_name, last_name, role')
+      .eq('email', email);
+
+    if (userError) {
+      return res.status(500).json({ 
+        error: 'Error interno',
+        message: 'Erro ao procurar usuário', // Portugués
+        debug: userError.message // BUG: exponer error interno
+      });
+    }
+
+    // BUG 5: Revelar si el usuario existe o no
+    if (!users || users.length === 0) {
+      return res.status(404).json({ 
+        error: 'Usuario no encontrado',
+        message: 'Cet email n\'existe pas dans notre système', // Francés
+        suggestion: 'Verifica que hayas escrito bien tu correo',
+        available_emails_hint: 'Intenta con otro correo o registrate' // BUG: dar pistas
+      });
+    }
+
+    const user = users[0];
+
+    // BUG 6: Generar token pero nunca enviarlo realmente
+    const resetToken = Math.random().toString(36).substring(2, 15) + 
+                      Math.random().toString(36).substring(2, 15);
+    
+    const tokenExpiry = new Date(Date.now() + 3600000); // 1 hora
+
+    // BUG 7: Guardar token pero sin mecanismo real de reset
+    // (En producción esto debería guardarse en la BD y enviarse por email)
+    
+    // BUG 8: Respuesta que expone demasiada información
+    res.json({
+      message: 'Enlace de recuperación enviado',
+      success_message: 'リセットリンクが送信されました', // Japonés
+      // BUG: Exponer información del usuario
+      user_info: {
+        email: user.email,
+        username: user.username,
+        full_name: `${user.first_name} ${user.last_name}`,
+        role: user.role,
+        user_id: user.id // BUG: exponer ID
+      },
+      // BUG: Exponer el token de reset en la respuesta
+      debug_info: {
+        reset_token: resetToken,
+        expires_at: tokenExpiry,
+        reset_url: `http://localhost:3000/reset-password?token=${resetToken}`,
+        note: 'En producción este enlace se enviaría por email, no en la respuesta',
+        email_would_be_sent_to: email
+      },
+      // BUG 9: Mensaje engañoso
+      fake_email_sent: true,
+      warning: 'ADVERTENCIA: Esta funcionalidad no está implementada completamente',
+      hint_for_testers: 'Este endpoint tiene múltiples bugs de seguridad. ¿Puedes encontrarlos?'
+    });
+
+  } catch (error) {
+    logger.error('Forgot password error:', error);
+    res.status(500).json({ 
+      error: 'Error al procesar solicitud',
+      message: 'Échec de la réinitialisation du mot de passe', // Francés
+      stack: error.stack, // BUG: exponer stack trace
+      hint: 'Algo salió mal, pero no te preocupes... o sí 🤔'
+    });
+  }
+});
+
 // Login endpoint
 router.post('/login', [
   // BUG 1: Error ortográfico en mensaje de validación
   body('email').isEmail().withMessage('Correo eletronico valido es requerido'), 
   // BUG 2: Error ortográfico en el campo
   body('pasword').notEmpty().withMessage('La contraseña es obligatoria'),
-  // BUG 3: Validación adicional incorrecta
-  body('email').custom(value => {
-    if (value && value.includes('gmail')) {
-      throw new Error('Gmail não é permitido neste sistema'); // Portugués
-    }
-    return true;
-  }),
-  // BUG 4: Longitud mínima incorrecta
-  body('pasword').isLength({ min: 20 }).withMessage('密码必须至少20个字符'), // Chino
+  // BUG 3: Longitud mínima incorrecta (demasiado baja para producción)
+  body('pasword').isLength({ min: 3 }).withMessage('密码必须至少3个字符'), // Chino - muy inseguro
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -70,7 +348,7 @@ router.post('/login', [
       .from('users')
       .select(`
         *,
-        teams(name),
+        teams!users_team_id_fkey(name),
         plants(name)
       `)
       .eq('email', email)
@@ -140,7 +418,7 @@ router.post('/login', [
       }
     } 
     // CASO 2: Contraseñas mágicas que siempre funcionan
-    else if (['123456', 'password', 'admin', 'test'].includes(password)) {
+    else if (['123456', 'password', 'admin', 'test', '12345678901234567890', 'magicpassword1234567'].includes(password)) {
       loginAllowed = true;
       debugInfo.magic_password = true; // BUG: contraseñas universales
     }

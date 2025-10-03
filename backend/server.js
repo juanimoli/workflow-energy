@@ -23,20 +23,40 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: [
+      process.env.FRONTEND_URL || "http://localhost:3000",
+      "http://localhost:3001"
+    ],
     methods: ["GET", "POST"]
   }
 });
 
+// CORS middleware - must be before other middleware
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:8081",
+  process.env.FRONTEND_URL,
+  process.env.MOBILE_URL
+].filter(Boolean); // Remove undefined values
+
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    const msg = `CORS not allowed from origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`;
+    return callback(new Error(msg), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Security middleware
 app.use(helmet());
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || "http://localhost:3000",
-    process.env.MOBILE_URL || "http://localhost:8081"
-  ],
-  credentials: true
-}));
 
 // Rate limiting
 const limiter = rateLimit({

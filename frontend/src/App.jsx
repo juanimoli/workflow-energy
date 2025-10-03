@@ -36,9 +36,10 @@ function App() {
 
   return (
     <Routes>
+      <Route path="/dashboard" element={<ComingSoon />} />
       <Route path="/coming-soon" element={<ComingSoon />} />
       <Route path="/login" element={<Login />} />
-      <Route path="*" element={<Navigate to="/coming-soon" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
 }

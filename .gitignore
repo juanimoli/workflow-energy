@@ -18,7 +18,8 @@ coverage/
 
 
 
-.env
+frontend/.env
+backend/.env
 # nyc test coverage
 .nyc_output
 

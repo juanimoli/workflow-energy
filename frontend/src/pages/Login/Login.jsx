@@ -118,12 +118,15 @@ const Login = () => {
               {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
             </Button>
 
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ textAlign: 'center', mb: 1 }}>
               <Link component={RouterLink} to="/forgot-password" variant="body2">
                 ¿Olvidaste tu contraseña?
               </Link>
+            </Box>
+            
+            <Box sx={{ textAlign: 'center', mb: 2 }}>
               <Link component={RouterLink} to="/register" variant="body2">
-                Registrarse
+                ¿No tienes cuenta? Registrarse aquí
               </Link>
             </Box>
             

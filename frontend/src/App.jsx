@@ -35,12 +35,21 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/dashboard" element={<ComingSoon />} />
-      <Route path="/coming-soon" element={<ComingSoon />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+    <Layout>
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/work-orders" element={<WorkOrders />} />
+        <Route path="/work-orders/create" element={<CreateWorkOrder />} />
+        <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
+        <Route path="/work-orders/:id/edit" element={<CreateWorkOrder />} />
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/coming-soon" element={<ComingSoon />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Layout>
   )
 }
 

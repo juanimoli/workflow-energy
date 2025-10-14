@@ -11,6 +11,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const workOrderRoutes = require('./routes/workOrders');
+const projectRoutes = require('./routes/projects');
 const metricsRoutes = require('./routes/metrics');
 const reportsRoutes = require('./routes/reports');
 const syncRoutes = require('./routes/sync');
@@ -106,6 +107,7 @@ app.get('/health/db', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/work-orders', workOrderRoutes);
+app.use('/api/projects', projectRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/sync', syncRoutes);

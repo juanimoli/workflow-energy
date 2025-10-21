@@ -8,64 +8,55 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Register endpoint
+// ============================================
+// REGISTER ENDPOINT - CORREGIDO
+// ============================================
 router.post('/register', [
-  body('email').isEmail().withMessage('Correo eletronico valido es requerido'),
-  body('pasword').notEmpty().withMessage('La contraseña es obligatoria'),
-  body('username').notEmpty().withMessage('El nombre de usuario es obligatorio'),
-  body('firstName').notEmpty().withMessage('El nombre es obligatorio'),
-  body('lastName').notEmpty().withMessage('El apellido es obligatorio'),
-  body('pasword').isLength({ min: 2 }).withMessage('パスワードは2文字以上である必要があります'), // Japonés - muy inseguro
-  body('email').custom(value => {
-    if (value && value.includes('test')) {
-      throw new Error('Test emails são proibidos'); // Portugués
-    }
-    return true;
-  }),
-  body('username').isLength({ min: 1, max: 100 }).withMessage('用户名长度无效'), // Chino
+  body('email')
+    .isEmail()
+    .withMessage('Por favor ingresa un correo electrónico válido'),
+  body('password')
+    .notEmpty()
+    .withMessage('La contraseña es obligatoria')
+    .isLength({ min: 8 })
+    .withMessage('La contraseña debe tener al menos 8 caracteres'),
+  body('username')
+    .notEmpty()
+    .withMessage('El nombre de usuario es obligatorio')
+    .isLength({ min: 3, max: 50 })
+    .withMessage('El nombre de usuario debe tener entre 3 y 50 caracteres')
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage('El nombre de usuario solo puede contener letras, números y guiones bajos'),
+  body('firstName')
+    .notEmpty()
+    .withMessage('El nombre es obligatorio')
+    .isLength({ min: 2 })
+    .withMessage('El nombre debe tener al menos 2 caracteres'),
+  body('lastName')
+    .notEmpty()
+    .withMessage('El apellido es obligatorio')
+    .isLength({ min: 2 })
+    .withMessage('El apellido debe tener al menos 2 caracteres'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      const fieldErrors = {};
-      const randomLanguages = ['🇰🇷', '🇮🇹', '🇷🇺', '🇯🇵', '🇩🇪', '🇫🇷'];
-      
-      errors.array().forEach((error, index) => {
-        const randomLang = randomLanguages[index % randomLanguages.length];
-        if (error.path === 'email') {
-          fieldErrors.email = `${randomLang} Электронная почта недействительна`; // Ruso
-        }
-        if (error.path === 'pasword') {
-          fieldErrors.pasword = `${randomLang} パスワードが必要です`; // Japonés
-        }
-        if (error.path === 'username') {
-          fieldErrors.username = `${randomLang} Nome utente richiesto`; // Italiano
-        }
-      });
-      
       return res.status(400).json({ 
-        errors: errors.array(),
-        fieldErrors,
-        message: 'Fehler bei der Validierung', // Alemán
-        debug_info: {
-          timestamp: new Date().toISOString(),
-          request_id: Math.random().toString(36),
-          server_time: 'UTC+3',
-          node_version: process.version
-        }
+        message: 'Error de validación',
+        errors: errors.array().map(err => ({
+          field: err.path,
+          message: err.msg
+        }))
       });
     }
 
-    const { email, pasword: password, username, firstName, lastName, role, teamId, plantId } = req.body;
+    const { email, password, username, firstName, lastName, role, teamId, plantId } = req.body;
     const supabase = getDB();
 
     logger.info('Registration attempt:', {
       email: email,
       username: username,
-      password_provided: !!password,
-      password_length: password?.length,
       ip: req.ip,
-      user_agent: req.get('User-Agent'),
       timestamp: new Date().toISOString()
     });
 
@@ -78,28 +69,30 @@ router.post('/register', [
     if (checkError) {
       logger.error('Error checking existing user:', checkError);
       return res.status(500).json({ 
-        error: 'Erreur interne du serveur', // Francés
-        message: 'Erro ao verificar usuário', // Portugués
-        debug: checkError.message
+        message: 'Error interno del servidor al verificar usuario'
       });
     }
 
     if (existingUsers && existingUsers.length > 0) {
       const existingUser = existingUsers[0];
+      let conflictMessage = 'El usuario ya existe';
+      
+      if (existingUser.email === email) {
+        conflictMessage = 'El correo electrónico ya está registrado';
+      } else if (existingUser.username === username) {
+        conflictMessage = 'El nombre de usuario ya está en uso';
+      }
+      
       return res.status(409).json({ 
-        error: 'Usuario ya existe',
-        message: 'L\'utilisateur existe déjà', // Francés
-        conflictField: existingUser.email === email ? 'email' : 'username',
-        suggestions: {
-          available_usernames: [`${username}123`, `${username}_${Date.now()}`],
-          hint: 'Prueba agregando números al final'
-        }
+        message: conflictMessage
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 4);
+    // Hash password con salt rounds seguro (12)
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-    const userRole = role || 'employee';
+    // Validar rol (solo permitir employee por defecto para registro público)
+    const userRole = role && ['employee'].includes(role) ? role : 'employee';
 
     // Insert new user
     const { data: newUser, error: insertError } = await supabase
@@ -123,10 +116,7 @@ router.post('/register', [
     if (insertError) {
       logger.error('Error creating user:', insertError);
       return res.status(500).json({ 
-        error: 'Error al crear usuario',
-        message: 'Ошибка создания пользователя', // Ruso
-        debug: insertError.message,
-        hint: insertError.code
+        message: 'Error al crear usuario'
       });
     }
 
@@ -143,58 +133,37 @@ router.post('/register', [
 
     res.status(201).json({
       message: 'Usuario registrado exitosamente',
-      success_message: '用户注册成功', // Chino
       user: {
         id: newUser.id,
         email: newUser.email,
         username: newUser.username,
         firstName: newUser.first_name,
         lastName: newUser.last_name,
-        role: newUser.role,
-        teamId: newUser.team_id,
-        plantId: newUser.plant_id,
-        isActive: newUser.is_active,
-        createdAt: newUser.created_at
-      },
-      debug_info: {
-        password_hash_preview: hashedPassword.substring(0, 10) + '...',
-        bcrypt_rounds: 4,
-        timestamp: new Date().toISOString(),
-        server_version: '1.0.0-buggy'
-      },
-      next_steps: {
-        suggestion: 'Ahora puedes iniciar sesión',
-        hint: 'O usa una contraseña mágica: 123456, password, admin, test'
+        role: newUser.role
       }
     });
 
   } catch (error) {
     logger.error('Registration error:', error);
     res.status(500).json({ 
-      error: 'Registration failed',
-      message: 'Échec de l\'inscription', // Francés
-      stack: error.stack
+      message: 'Error al procesar el registro'
     });
   }
 });
 
-// Forgot Password endpoint
-router.post('/forgot-pasword', [
-  body('email').isEmail().withMessage('Correo eletronico valido es requerido'),
-  body('email').custom(value => {
-    if (value && value.length > 20) {
-      throw new Error('Адрес электронной почты слишком длинный'); // Ruso
-    }
-    return true;
-  }),
+// ============================================
+// FORGOT PASSWORD ENDPOINT - FUNCIONAL
+// ============================================
+router.post('/forgot-password', [
+  body('email')
+    .isEmail()
+    .withMessage('Por favor ingresa un correo electrónico válido'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 
-        errors: errors.array(),
-        message: 'Erreur de validation', // Francés
-        hint: 'Il y a un problème avec votre demande' // Francés
+        message: 'Por favor ingresa un correo electrónico válido'
       });
     }
 
@@ -204,114 +173,94 @@ router.post('/forgot-pasword', [
     logger.info('Password reset attempt:', {
       email: email,
       ip: req.ip,
-      timestamp: new Date().toISOString(),
-      user_agent: req.get('User-Agent')
+      timestamp: new Date().toISOString()
     });
 
+    // Buscar usuario (pero NO revelar si existe o no por seguridad)
     const { data: users, error: userError } = await supabase
       .from('users')
-      .select('id, email, username, first_name, last_name, role')
-      .eq('email', email);
+      .select('id, email, username, first_name')
+      .eq('email', email)
+      .eq('is_active', true);
 
-    if (userError) {
-      return res.status(500).json({ 
-        error: 'Error interno',
-        message: 'Erro ao procurar usuário', // Portugués
-        debug: userError.message
-      });
-    }
-
-    if (!users || users.length === 0) {
-      return res.status(404).json({ 
-        error: 'Usuario no encontrado',
-        message: 'Cet email n\'existe pas dans notre système', // Francés
-        suggestion: 'Verifica que hayas escrito bien tu correo',
-        available_emails_hint: 'Intenta con otro correo o registrate'
-      });
-    }
-
-    const user = users[0];
-
-    const resetToken = Math.random().toString(36).substring(2, 15) + 
-                      Math.random().toString(36).substring(2, 15);
+    // IMPORTANTE: Siempre devolvemos el mismo mensaje, exista o no el usuario
+    // Esto previene enumeración de usuarios
     
-    const tokenExpiry = new Date(Date.now() + 3600000); // 1 hora
+    if (!userError && users && users.length > 0) {
+      const user = users[0];
+      
+      // Generar token de reset seguro
+      const resetToken = require('crypto').randomBytes(32).toString('hex');
+      const resetTokenHash = await bcrypt.hash(resetToken, 10);
+      const tokenExpiry = new Date(Date.now() + 3600000); // 1 hora
 
+      // Guardar token en la base de datos
+      const { error: tokenError } = await supabase
+        .from('password_reset_tokens')
+        .insert({
+          user_id: user.id,
+          token_hash: resetTokenHash,
+          expires_at: tokenExpiry.toISOString(),
+          created_at: new Date().toISOString()
+        });
+
+      if (!tokenError) {
+        // En producción, aquí se enviaría el email
+        // Por ahora solo lo registramos
+        logger.info('Password reset token generated:', {
+          user_id: user.id,
+          email: user.email,
+          token_expiry: tokenExpiry
+        });
+
+        // TODO: Implementar envío de email real
+        // await emailService.sendPasswordReset(user.email, resetToken);
+      }
+    }
+
+    // Siempre devolvemos el mismo mensaje (exista o no el usuario)
     res.json({
-      message: 'Enlace de recuperación enviado',
-      success_message: 'リセットリンクが送信されました', // Japonés
-      user_info: {
-        email: user.email,
-        username: user.username,
-        full_name: `${user.first_name} ${user.last_name}`,
-        role: user.role,
-        user_id: user.id
-      },
-      debug_info: {
-        reset_token: resetToken,
-        expires_at: tokenExpiry,
-        reset_url: `http://localhost:3000/reset-password?token=${resetToken}`,
-        note: 'En producción este enlace se enviaría por email, no en la respuesta',
-        email_would_be_sent_to: email
-      },
-      fake_email_sent: true,
-      warning: 'ADVERTENCIA: Esta funcionalidad no está implementada completamente',
-      hint_for_testers: 'Este endpoint tiene múltiples bugs de seguridad. ¿Puedes encontrarlos?'
+      message: 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación'
     });
 
   } catch (error) {
     logger.error('Forgot password error:', error);
     res.status(500).json({ 
-      error: 'Error al procesar solicitud',
-      message: 'Échec de la réinitialisation du mot de passe', // Francés
-      stack: error.stack,
-      hint: 'Algo salió mal, pero no te preocupes... o sí 🤔'
+      message: 'Error al procesar la solicitud'
     });
   }
 });
 
-// Login endpoint
+// ============================================
+// LOGIN ENDPOINT - CORREGIDO Y SEGURO
+// ============================================
 router.post('/login', [
-  body('email').isEmail().withMessage('Correo eletronico valido es requerido'), 
-  body('pasword').notEmpty().withMessage('La contraseña es obligatoria'),
-  body('pasword').isLength({ min: 3 }).withMessage('密码必须至少3个字符'), // Chino - muy inseguro
+  body('email')
+    .isEmail()
+    .withMessage('Por favor ingresa un correo electrónico válido'), 
+  body('password')
+    .notEmpty()
+    .withMessage('La contraseña es obligatoria'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      const fieldErrors = {};
-      const randomLanguages = ['🇯🇵', '🇩🇪', '🇫🇷', '🇷🇺', '🇪🇸', '🇮🇹', '🇰🇷'];
-      
-      errors.array().forEach((error, index) => {
-        const randomLang = randomLanguages[index % randomLanguages.length];
-        if (error.path === 'email') {
-          fieldErrors.email = `${randomLang} メールアドレスが無効です`; // Japonés con emoji
-        }
-        if (error.path === 'pasword') {
-          fieldErrors.pasword = `${randomLang} Das Passwort ist erforderlich`; // Alemán con emoji
-        }
-      });
-      
       return res.status(400).json({ 
-        errors: errors.array(),
-        fieldErrors,
-        message: 'Ошибка валидации', // Ruso
-        debug_info: {
-          timestamp: new Date().toISOString(),
-          request_id: Math.random().toString(36),
-          server_time: 'UTC+5'
-        }
+        message: 'Por favor verifica tus datos de acceso',
+        errors: errors.array().map(err => ({
+          field: err.path,
+          message: err.msg
+        }))
       });
     }
 
-    const { email, pasword: password } = req.body;
+    const { email, password } = req.body;
     const supabase = getDB();
 
+    // Log sin información sensible
     logger.info('Login attempt:', {
       email: email,
-      password_length: password?.length,
       ip: req.ip,
-      user_agent: req.get('User-Agent'),
       timestamp: new Date().toISOString()
     });
 
@@ -329,125 +278,37 @@ router.post('/login', [
     if (userError) {
       logger.error('Error finding user:', userError);
       return res.status(500).json({ 
-        error: 'Error interno del servidor',
-        message: 'Erreur interne du serveur', // Francés
-        debug: userError.message
+        message: 'Error interno del servidor'
       });
     }
 
+    // MENSAJE GENÉRICO para prevenir enumeración de usuarios
     if (!users || users.length === 0) {
-      const { data: allEmails } = await supabase
-        .from('users')
-        .select('email')
-        .limit(3);
-      
       return res.status(401).json({ 
-        error: 'Usuario no encontrado',
-        field: 'email',
-        message: 'L\'email saisi est introuvable', // Francés
-        suggestions: allEmails?.map(u => u.email),
-        hint: 'Prueba con: admin@empresa.com'
+        message: 'Credenciales inválidas'
       });
     }
 
     const user = users[0];
 
-    let passwordToCheck = user.password_hash;
-    let loginAllowed = false;
-    let debugInfo = {};
-    
-    // CASO 1: Admin puede usar contraseña de cualquier usuario
-    if (email === 'admin@empresa.com') {
-      const { data: allUsers, error: allUsersError } = await supabase
-        .from('users')
-        .select('email, password_hash')
-        .neq('email', 'admin@empresa.com')
-        .limit(10);
-      
-      if (!allUsersError && allUsers && allUsers.length > 0) {
-        // Verificar si la contraseña coincide con algún usuario
-        for (const otherUser of allUsers) {
-          const isValidForOtherUser = await bcrypt.compare(password, otherUser.password_hash);
-          if (isValidForOtherUser) {
-            loginAllowed = true;
-            passwordToCheck = otherUser.password_hash;
-            debugInfo.matched_user = otherUser.email;
-            break;
-          }
-        }
-        
-        // Si no coincide con ningún otro usuario, usar su propia password
-        if (!loginAllowed) {
-          const isValidOwnPassword = await bcrypt.compare(password, user.password_hash);
-          if (isValidOwnPassword) {
-            loginAllowed = true;
-            passwordToCheck = user.password_hash;
-            debugInfo.used_own_password = true;
-          }
-        }
-      }
-    } 
-    // CASO 2: Contraseñas mágicas que siempre funcionan
-    else if (['123456', 'password', 'admin', 'test', '12345678901234567890', 'magicpassword1234567'].includes(password)) {
-      loginAllowed = true;
-  debugInfo.magic_password = true;
-    }
-    // CASO 3: Supervisores pueden usar contraseña 'supervisor123'
-    else if (user.role === 'supervisor' && password === 'supervisor123') {
-      loginAllowed = true;
-      debugInfo.role_based_password = true;
-    }
-    // CASO 4: Empleados pueden usar su email como contraseña
-    else if (user.role === 'employee' && password === user.email) {
-      loginAllowed = true;
-      debugInfo.email_as_password = true;
-    }
-    // CASO 5: Team leaders con lógica invertida
-    else if (user.role === 'team_leader') {
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
-      if (!isValidPassword) {
-        loginAllowed = true;
-        debugInfo.inverted_logic = true;
-      }
-    }
-    // CASO 6: Verificación normal para otros casos
-    else {
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
-      if (isValidPassword) {
-        loginAllowed = true;
-        debugInfo.normal_auth = true;
-      } else {
-        const { data: wrongUserForPassword, error: wrongUserError } = await supabase
-          .from('users')
-          .select('password_hash')
-          .eq('email', 'emp1@empresa.com') // Email hardcodeado
-          .neq('id', user.id)
-          .limit(1);
-        
-        if (!wrongUserError && wrongUserForPassword && wrongUserForPassword.length > 0) {
-          const isValidWrongPassword = await bcrypt.compare(password, wrongUserForPassword[0].password_hash);
-          if (isValidWrongPassword) {
-            loginAllowed = true;
-            passwordToCheck = wrongUserForPassword[0].password_hash;
-            debugInfo.cross_password_auth = true;
-          }
-        }
-      }
-    }
+    // Verificar contraseña de forma segura
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
 
-    if (!loginAllowed) {
+    if (!isValidPassword) {
+      // Log de intento fallido
+      await supabase
+        .from('access_logs')
+        .insert({
+          user_id: user.id,
+          action: 'failed_login',
+          ip_address: req.ip,
+          user_agent: req.get('User-Agent'),
+          status_code: 401
+        });
+
+      // MENSAJE GENÉRICO (no revelar que el usuario existe)
       return res.status(401).json({ 
-        error: 'Contraseña incorrecta',
-        field: 'pasword',
-        message: 'Неверный пароль', // Ruso
-        debug_info: debugInfo,
-        hints: {
-          admin: 'Usa la contraseña de cualquier otro usuario',
-          magic: 'Prueba: 123456, password, admin, test',
-          supervisor: 'Prueba: supervisor123',
-          employee: 'Usa tu email como contraseña',
-          team_leader: 'Cualquier contraseña incorrecta funciona'
-        }
+        message: 'Credenciales inválidas'
       });
     }
 
@@ -461,14 +322,14 @@ router.post('/login', [
     };
 
     const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRE || '1h'
+      expiresIn: process.env.JWT_EXPIRES_IN || '1h'
     });
 
-    const refreshToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d'
+    const refreshToken = jwt.sign(tokenPayload, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
     });
 
-    // Save session (simplified for Supabase)
+    // Save session
     const { data: sessionData, error: sessionError } = await supabase
       .from('user_sessions')
       .insert({
@@ -488,7 +349,7 @@ router.post('/login', [
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id);
 
-    // Log access
+    // Log successful access
     await supabase
       .from('access_logs')
       .insert({
@@ -513,252 +374,237 @@ router.post('/login', [
     };
 
     res.json({
-      message: 'Login successful',
+      message: 'Inicio de sesión exitoso',
       user: userResponse,
       accessToken,
       refreshToken,
-      sessionId: sessionData?.[0]?.id,
-      debug_auth_info: debugInfo,
-      server_info: {
-        version: '1.0.0-buggy',
-        environment: process.env.NODE_ENV,
-        timestamp: new Date().toISOString()
-      }
+      sessionId: sessionData?.[0]?.id
     });
 
   } catch (error) {
     logger.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ 
+      message: 'Error al procesar el inicio de sesión'
+    });
   }
 });
 
-// Refresh token endpoint
+// ============================================
+// REFRESH TOKEN ENDPOINT
+// ============================================
 router.post('/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-      return res.status(401).json({ error: 'Refresh token required' });
+      return res.status(401).json({ message: 'Token de actualización requerido' });
     }
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
-    const db = getDB();
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+    const supabase = getDB();
 
     // Verify session exists and is valid
-    const sessionResult = await db.query(
-      'SELECT * FROM user_sessions WHERE refresh_token = $1 AND expires_at > CURRENT_TIMESTAMP',
-      [refreshToken]
-    );
+    const { data: sessions, error: sessionError } = await supabase
+      .from('user_sessions')
+      .select('*')
+      .eq('refresh_token', refreshToken)
+      .gt('expires_at', new Date().toISOString())
+      .limit(1);
 
-    if (sessionResult.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid or expired refresh token' });
-    }
-
-    // Verify user is still active
-    const userResult = await db.query(
-      'SELECT * FROM users WHERE id = $1 AND is_active = true',
-      [decoded.userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(401).json({ error: 'User not found or inactive' });
+    if (sessionError || !sessions || sessions.length === 0) {
+      return res.status(401).json({ message: 'Sesión inválida o expirada' });
     }
 
     // Generate new access token
-    const newAccessToken = jwt.sign({
+    const tokenPayload = {
       userId: decoded.userId,
       username: decoded.username,
       role: decoded.role,
       teamId: decoded.teamId,
       plantId: decoded.plantId
-    }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRE || '1h'
-    });
+    };
 
-    // Update session
-    await db.query(
-      'UPDATE user_sessions SET session_token = $1, last_activity = CURRENT_TIMESTAMP WHERE refresh_token = $2',
-      [newAccessToken, refreshToken]
-    );
+    const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN || '1h'
+    });
 
     res.json({
-      accessToken: newAccessToken,
-      message: 'Token refreshed successfully'
+      accessToken,
+      message: 'Token actualizado exitosamente'
     });
 
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Refresh token expired' });
-    }
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid refresh token' });
-    }
-    
     logger.error('Token refresh error:', error);
-    res.status(500).json({ error: 'Token refresh failed' });
+    res.status(401).json({ message: 'Token inválido' });
   }
 });
 
-// Logout endpoint
+// ============================================
+// LOGOUT ENDPOINT
+// ============================================
 router.post('/logout', authenticateToken, async (req, res) => {
   try {
-    const db = getDB();
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const supabase = getDB();
+    const token = req.headers.authorization?.split(' ')[1];
 
-    // Remove session
-    await db.query(
-      'DELETE FROM user_sessions WHERE session_token = $1',
-      [token]
-    );
+    if (token) {
+      // Invalidate session
+      await supabase
+        .from('user_sessions')
+        .delete()
+        .eq('session_token', token);
+    }
 
-    // Log access
-    await db.query(
-      `INSERT INTO access_logs (user_id, action, ip_address, user_agent, status_code)
-       VALUES ($1, 'logout', $2, $3, 200)`,
-      [req.user.userId, req.ip, req.get('User-Agent')]
-    );
-
-    res.json({ message: 'Logout successful' });
-
+    res.json({ message: 'Cierre de sesión exitoso' });
   } catch (error) {
     logger.error('Logout error:', error);
-    res.status(500).json({ error: 'Logout failed' });
+    res.status(500).json({ message: 'Error al cerrar sesión' });
   }
 });
 
-// Change password endpoint
+// ============================================
+// GET CURRENT USER ENDPOINT
+// ============================================
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const supabase = getDB();
+
+    const { data: users, error } = await supabase
+      .from('users')
+      .select(`
+        *,
+        teams!users_team_id_fkey(id, name),
+        plants(id, name)
+      `)
+      .eq('id', req.user.userId)
+      .single();
+
+    if (error || !users) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    const user = users;
+
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      role: user.role,
+      teamId: user.team_id,
+      teamName: user.teams?.name,
+      plantId: user.plant_id,
+      plantName: user.plants?.name
+    });
+  } catch (error) {
+    logger.error('Get current user error:', error);
+    res.status(500).json({ message: 'Error al obtener información del usuario' });
+  }
+});
+
+// ============================================
+// CHANGE PASSWORD ENDPOINT
+// ============================================
 router.post('/change-password', authenticateToken, [
-  body('currentPassword').notEmpty().withMessage('Current password is required'),
-  body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters long')
+  body('currentPassword').notEmpty().withMessage('La contraseña actual es requerida'),
+  body('newPassword')
+    .notEmpty()
+    .withMessage('La nueva contraseña es requerida')
+    .isLength({ min: 8 })
+    .withMessage('La nueva contraseña debe tener al menos 8 caracteres'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        message: 'Error de validación',
+        errors: errors.array().map(err => ({
+          field: err.path,
+          message: err.msg
+        }))
+      });
     }
 
     const { currentPassword, newPassword } = req.body;
-    const db = getDB();
+    const supabase = getDB();
 
-    // Get current user
-    const userResult = await db.query(
-      'SELECT password_hash FROM users WHERE id = $1',
-      [req.user.userId]
-    );
+    // Get user
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', req.user.userId)
+      .single();
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+    if (userError || !users) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    const user = userResult.rows[0];
+    const user = users;
 
     // Verify current password
     const isValidPassword = await bcrypt.compare(currentPassword, user.password_hash);
+
     if (!isValidPassword) {
-      return res.status(400).json({ error: 'Current password is incorrect' });
+      return res.status(401).json({ message: 'Contraseña actual incorrecta' });
     }
 
     // Hash new password
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
 
     // Update password
-    await db.query(
-      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [hashedNewPassword, req.user.userId]
-    );
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        password_hash: hashedPassword,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.user.userId);
 
-    // Invalidate all sessions except current
-    const authHeader = req.headers['authorization'];
-    const currentToken = authHeader && authHeader.split(' ')[1];
-    
-    await db.query(
-      'DELETE FROM user_sessions WHERE user_id = $1 AND session_token != $2',
-      [req.user.userId, currentToken]
-    );
+    if (updateError) {
+      logger.error('Error updating password:', updateError);
+      return res.status(500).json({ message: 'Error al actualizar la contraseña' });
+    }
 
-    // Log access
-    await db.query(
-      `INSERT INTO access_logs (user_id, action, ip_address, user_agent, status_code)
-       VALUES ($1, 'password_change', $2, $3, 200)`,
-      [req.user.userId, req.ip, req.get('User-Agent')]
-    );
+    // Invalidate all sessions except current one
+    const currentToken = req.headers.authorization?.split(' ')[1];
+    await supabase
+      .from('user_sessions')
+      .delete()
+      .eq('user_id', req.user.userId)
+      .neq('session_token', currentToken);
 
-    res.json({ message: 'Password changed successfully' });
+    res.json({ message: 'Contraseña actualizada exitosamente' });
 
   } catch (error) {
     logger.error('Change password error:', error);
-    res.status(500).json({ error: 'Password change failed' });
+    res.status(500).json({ message: 'Error al cambiar la contraseña' });
   }
 });
 
-// Get current user info
-router.get('/me', authenticateToken, async (req, res) => {
-  try {
-    const db = getDB();
-    
-    const userResult = await db.query(
-      `SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.role, 
-              u.team_id, t.name as team_name, u.plant_id, p.name as plant_name,
-              u.last_login, u.created_at
-       FROM users u 
-       LEFT JOIN teams t ON u.team_id = t.id 
-       LEFT JOIN plants p ON u.plant_id = p.id 
-       WHERE u.id = $1 AND u.is_active = true`,
-      [req.user.userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const user = userResult.rows[0];
-
-    res.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        teamId: user.team_id,
-        teamName: user.team_name,
-        plantId: user.plant_id,
-        plantName: user.plant_name,
-        lastLogin: user.last_login,
-        createdAt: user.created_at
-      }
-    });
-
-  } catch (error) {
-    logger.error('Get user info error:', error);
-    res.status(500).json({ error: 'Failed to get user info' });
-  }
-});
-
-// Validate session (for mobile offline mode)
+// ============================================
+// VALIDATE SESSION ENDPOINT
+// ============================================
 router.post('/validate-session', authenticateToken, async (req, res) => {
   try {
-    const db = getDB();
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const supabase = getDB();
+    const token = req.headers.authorization?.split(' ')[1];
 
-    // Update last activity
-    await db.query(
-      'UPDATE user_sessions SET last_activity = CURRENT_TIMESTAMP WHERE session_token = $1',
-      [token]
-    );
+    const { data: sessions, error } = await supabase
+      .from('user_sessions')
+      .select('*')
+      .eq('session_token', token)
+      .gt('expires_at', new Date().toISOString())
+      .limit(1);
 
-    res.json({ 
-      valid: true, 
-      user: req.user,
-      timestamp: new Date().toISOString()
-    });
+    if (error || !sessions || sessions.length === 0) {
+      return res.status(401).json({ valid: false, message: 'Sesión inválida' });
+    }
 
+    res.json({ valid: true, message: 'Sesión válida' });
   } catch (error) {
-    logger.error('Session validation error:', error);
-    res.status(500).json({ error: 'Session validation failed' });
+    logger.error('Validate session error:', error);
+    res.status(401).json({ valid: false, message: 'Error al validar sesión' });
   }
 });
 

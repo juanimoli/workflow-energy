@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link as RouterLink } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import {
   Box,
   Paper,
@@ -26,19 +27,87 @@ const Register = () => {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState({})
 
   const handleChange = (e) => {
+    const { name, value } = e.target
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: value
+    })
+    
+    // Validación en tiempo real
+    validateField(name, value)
+  }
+
+  const validateField = (name, value) => {
+    const errors = {}
+    
+    switch(name) {
+      case 'firstName':
+        if (value && value.length < 2) {
+          errors.firstName = 'El nombre debe tener al menos 2 caracteres'
+        }
+        break
+      case 'lastName':
+        if (value && value.length < 2) {
+          errors.lastName = 'El apellido debe tener al menos 2 caracteres'
+        }
+        break
+      case 'username':
+        if (value && value.length < 3) {
+          errors.username = 'El usuario debe tener al menos 3 caracteres'
+        } else if (value && value.length > 50) {
+          errors.username = 'El usuario no puede tener más de 50 caracteres'
+        } else if (value && !/^[a-zA-Z0-9_]+$/.test(value)) {
+          errors.username = 'Solo letras, números y guiones bajos'
+        }
+        break
+      case 'email':
+        if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          errors.email = 'Correo electrónico inválido'
+        }
+        break
+      case 'password':
+        if (value && value.length < 8) {
+          errors.password = 'La contraseña debe tener al menos 8 caracteres'
+        }
+        if (formData.confirmPassword && value !== formData.confirmPassword) {
+          errors.confirmPassword = 'Las contraseñas no coinciden'
+        } else {
+          setFieldErrors(prev => {
+            const newErrors = {...prev}
+            delete newErrors.confirmPassword
+            return newErrors
+          })
+        }
+        break
+      case 'confirmPassword':
+        if (value && value !== formData.password) {
+          errors.confirmPassword = 'Las contraseñas no coinciden'
+        }
+        break
+    }
+    
+    setFieldErrors(prev => {
+      const newErrors = {...prev}
+      if (Object.keys(errors).length > 0) {
+        return {...newErrors, ...errors}
+      } else {
+        delete newErrors[name]
+        return newErrors
+      }
     })
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     
+    // Validar todos los campos
+    Object.keys(formData).forEach(key => validateField(key, formData[key]))
+    
     if (!formData.email || !formData.password || !formData.username || !formData.firstName || !formData.lastName) {
-      setError('Por favor completa todos los campos')
+      setError('Por favor completa todos los campos obligatorios')
       return
     }
 
@@ -47,23 +116,41 @@ const Register = () => {
       return
     }
 
+    if (Object.keys(fieldErrors).length > 0) {
+      setError('Por favor corrige los errores en el formulario')
+      return
+    }
+
     setLoading(true)
     setError('')
 
     try {
-      // Transform to match backend's intentional typo
       const payload = {
         email: formData.email,
-        pasword: formData.password,  // Note: backend expects 'pasword' with typo
+        password: formData.password,
         username: formData.username,
         firstName: formData.firstName,
         lastName: formData.lastName
       }
       
-      await api.post('/auth/register', payload)
-      navigate('/login')
+      const response = await api.post('/auth/register', payload)
+      
+      // Mostrar toast de éxito
+      toast.success('¡Registro exitoso! Ahora puedes iniciar sesión', {
+        duration: 4000,
+        icon: '✅'
+      })
+      
+      // Esperar un momento para que el usuario vea el toast
+      setTimeout(() => {
+        navigate('/login')
+      }, 1000)
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.error || 'Error al registrar usuario')
+      const errorMessage = err.response?.data?.message || err.response?.data?.error || 'Error al registrar usuario'
+      setError(errorMessage)
+      toast.error(errorMessage, {
+        duration: 5000
+      })
     } finally {
       setLoading(false)
     }
@@ -126,6 +213,8 @@ const Register = () => {
                   value={formData.firstName}
                   onChange={handleChange}
                   disabled={loading}
+                  error={!!fieldErrors.firstName}
+                  helperText={fieldErrors.firstName || 'Mínimo 2 caracteres'}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -140,6 +229,8 @@ const Register = () => {
                   value={formData.lastName}
                   onChange={handleChange}
                   disabled={loading}
+                  error={!!fieldErrors.lastName}
+                  helperText={fieldErrors.lastName || 'Mínimo 2 caracteres'}
                 />
               </Grid>
             </Grid>
@@ -155,6 +246,8 @@ const Register = () => {
               value={formData.username}
               onChange={handleChange}
               disabled={loading}
+              error={!!fieldErrors.username}
+              helperText={fieldErrors.username || 'Entre 3 y 50 caracteres (letras, números y _)'}
             />
             
             <TextField
@@ -162,12 +255,14 @@ const Register = () => {
               required
               fullWidth
               id="email"
-              label="Correo Eletronico"
+              label="Correo Electrónico"
               name="email"
               autoComplete="email"
               value={formData.email}
               onChange={handleChange}
               disabled={loading}
+              error={!!fieldErrors.email}
+              helperText={fieldErrors.email}
             />
             
             <TextField
@@ -175,13 +270,15 @@ const Register = () => {
               required
               fullWidth
               name="password"
-              label="Pasword"
+              label="Contraseña"
               type="password"
               id="password"
               autoComplete="new-password"
               value={formData.password}
               onChange={handleChange}
               disabled={loading}
+              error={!!fieldErrors.password}
+              helperText={fieldErrors.password || 'Mínimo 8 caracteres'}
             />
             
             <TextField
@@ -189,13 +286,15 @@ const Register = () => {
               required
               fullWidth
               name="confirmPassword"
-              label="Confirmar Pasword"
+              label="Confirmar Contraseña"
               type="password"
               id="confirmPassword"
               autoComplete="new-password"
               value={formData.confirmPassword}
               onChange={handleChange}
               disabled={loading}
+              error={!!fieldErrors.confirmPassword}
+              helperText={fieldErrors.confirmPassword}
             />
             
             <Button
@@ -216,10 +315,10 @@ const Register = () => {
 
             <Box sx={{ mt: 2, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
               <Typography variant="caption" display="block" color="text.secondary">
-                💡 Nota: El pasword debe tener al menos 2 caracteres
+                💡 Nota: La contraseña debe tener al menos 8 caracteres
               </Typography>
               <Typography variant="caption" display="block" color="text.secondary">
-                ⚠️ Evita usar 'test' en tu correo eletronico
+                ⚠️ Usa un correo electrónico válido para recibir notificaciones
               </Typography>
             </Box>
           </Box>

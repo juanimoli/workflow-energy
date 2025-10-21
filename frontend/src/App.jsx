@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout/Layout'
 import Landing from './pages/Landing/Landing'
@@ -24,32 +25,38 @@ function App() {
 
   if (!user) {
     return (
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <>
+        <Toaster position="top-right" />
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </>
     )
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/work-orders" element={<WorkOrders />} />
-        <Route path="/work-orders/create" element={<CreateWorkOrder />} />
-        <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
-        <Route path="/work-orders/:id/edit" element={<CreateWorkOrder />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/coming-soon" element={<ComingSoon />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </Layout>
+    <>
+      <Toaster position="top-right" />
+      <Layout>
+        <Routes>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/work-orders" element={<WorkOrders />} />
+          <Route path="/work-orders/create" element={<CreateWorkOrder />} />
+          <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
+          <Route path="/work-orders/:id/edit" element={<CreateWorkOrder />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/coming-soon" element={<ComingSoon />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </Layout>
+    </>
   )
 }
 

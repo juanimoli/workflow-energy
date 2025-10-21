@@ -82,13 +82,12 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('refreshToken', response.refreshToken)
       
       dispatch({ type: 'AUTH_SUCCESS', payload: response.user })
-      toast.success(`Bienvenido, ${response.user.firstName}!`)
+      // Toast se maneja en Login.jsx
       
       return response
     } catch (error) {
       dispatch({ type: 'AUTH_FAILURE' })
-      const message = error.response?.data?.error || 'Error de inicio de sesión'
-      toast.error(message)
+      // Error se maneja en Login.jsx
       throw error
     }
   }

@@ -83,6 +83,11 @@ export const authService = {
     return response.data
   },
 
+  async forgotPassword(email) {
+    const response = await api.post('/api/auth/forgot-password', { email })
+    return response.data
+  },
+
   async validateSession() {
     const response = await api.post('/api/auth/validate-session')
     return response.data

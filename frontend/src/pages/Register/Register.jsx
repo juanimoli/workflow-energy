@@ -133,7 +133,7 @@ const Register = () => {
         lastName: formData.lastName
       }
       
-      const response = await api.post('/auth/register', payload)
+      const response = await api.post('/api/auth/register', payload)
       
       // Mostrar toast de éxito
       toast.success('¡Registro exitoso! Ahora puedes iniciar sesión', {

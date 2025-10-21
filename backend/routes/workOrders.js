@@ -206,7 +206,6 @@ router.post('/', authenticateToken, [
         assigned_to: assignedTo || req.user.userId, // Si no asigna a nadie, se asigna a sí mismo
         created_by: req.user.userId,
         team_id: req.user.team_id,
-        plant_id: req.user.plant_id,
         project_id: projectId || null,
         estimated_hours: estimatedHours || null,
         due_date: dueDate || null,

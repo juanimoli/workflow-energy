@@ -144,7 +144,13 @@ const Login = () => {
                 Cuentas de demostración:
               </Typography>
               <Typography variant="caption" display="block">
-                Admin: admin@empresa.com / password
+                Admin: admin@empresa.com / 123456
+              </Typography>
+              <Typography variant="caption" display="block">
+                Team Leader: team_leader@empresa.com / password
+              </Typography>
+              <Typography variant="caption" display="block">
+                Employee: employee@empresa.com / password
               </Typography>
               <Typography variant="caption" display="block">
                 Técnico: tech@example.com / password

@@ -1,9 +1,9 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -64,27 +64,27 @@ export const authService = {
       email: credentials.email,
       password: credentials.password
     }
-    const response = await api.post('/auth/login', payload)
+    const response = await api.post('/api/auth/login', payload)
     return response.data
   },
 
   async logout() {
-    const response = await api.post('/auth/logout')
+    const response = await api.post('/api/auth/logout')
     return response.data
   },
 
   async getCurrentUser() {
-    const response = await api.get('/auth/me')
+    const response = await api.get('/api/auth/me')
     return response.data
   },
 
   async changePassword(passwordData) {
-    const response = await api.post('/auth/change-password', passwordData)
+    const response = await api.post('/api/auth/change-password', passwordData)
     return response.data
   },
 
   async validateSession() {
-    const response = await api.post('/auth/validate-session')
+    const response = await api.post('/api/auth/validate-session')
     return response.data
   },
 }

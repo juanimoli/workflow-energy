@@ -1,26 +1,33 @@
 const express = require('express');
 const { body, validationResult, query } = require('express-validator');
 const { getDB } = require('../config/database');
-const { authenticateToken, authorizeWorkOrderAccess } = require('../middleware/auth');
+const { authenticateToken, authorizeWorkOrderAccess, authorizeRoles } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Get work orders with filtering and pagination
+// ============================================
+// GET WORK ORDERS - Con filtrado por rol (HU-05)
+// ============================================
 router.get('/', authenticateToken, [
-  query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
-  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
-  query('status').optional().isIn(['pending', 'in_progress', 'completed', 'cancelled', 'on_hold']),
-  query('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
+  query('page').optional().isInt({ min: 1 }).withMessage('La página debe ser un número positivo'),
+  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('El límite debe estar entre 1 y 100'),
+  query('status').optional().custom(value => !value || ['pending', 'in_progress', 'completed', 'cancelled', 'on_hold'].includes(value)),
+  query('priority').optional().custom(value => !value || ['low', 'medium', 'high', 'critical'].includes(value)),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        message: 'Error en los parámetros',
+        errors: errors.array() 
+      });
     }
 
-    const db = getDB();
-    const {
+    const supabase = getDB();
+    
+    // Limpiar strings vacíos de los query params
+    let {
       page = 1,
       limit = 20,
       status,
@@ -30,351 +37,427 @@ router.get('/', authenticateToken, [
       teamId,
       search,
       sortBy = 'created_at',
-      sortOrder = 'DESC'
+      sortOrder = 'desc'
     } = req.query;
+    
+    // Convertir strings vacíos a undefined
+    status = status && status.trim() ? status : undefined;
+    priority = priority && priority.trim() ? priority : undefined;
+    search = search && search.trim() ? search : undefined;
 
     const offset = (page - 1) * limit;
 
-    // Build WHERE clause based on user role
-    let whereClause = 'WHERE 1=1';
-    let params = [];
-    let paramIndex = 1;
+    // Construir query según rol (HU-03 y HU-05)
+    let query = supabase
+      .from('work_orders')
+      .select(`
+        *,
+        assigned_user:users!work_orders_assigned_to_fkey(id, first_name, last_name, email),
+        creator:users!work_orders_created_by_fkey(id, first_name, last_name),
+        team:teams(id, name),
+        project:projects(id, name)
+      `, { count: 'exact' });
 
-    // Role-based filtering
+    // HU-05: Filtrado por rol
     if (req.user.role === 'employee') {
-      whereClause += ` AND wo.assigned_to = $${paramIndex}`;
-      params.push(req.user.userId);
-      paramIndex++;
+      // Empleados solo ven sus propias órdenes
+      query = query.eq('assigned_to', req.user.userId);
     } else if (req.user.role === 'team_leader') {
-      whereClause += ` AND wo.team_id = $${paramIndex}`;
-      params.push(req.user.teamId);
-      paramIndex++;
+      // Jefes de equipo solo ven órdenes de su equipo
+      query = query.eq('team_id', req.user.team_id);
+    } else if (req.user.role === 'supervisor') {
+      // Supervisores ven todas las órdenes de su planta
+      if (req.user.plant_id) {
+        query = query.eq('plant_id', req.user.plant_id);
+      }
     }
-    // Supervisors see all work orders
+    // Admin ve todo (sin filtro adicional)
 
-    // Add filters
+    // Aplicar filtros adicionales
     if (status) {
-      whereClause += ` AND wo.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
+      query = query.eq('status', status);
     }
 
     if (priority) {
-      whereClause += ` AND wo.priority = $${paramIndex}`;
-      params.push(priority);
-      paramIndex++;
+      query = query.eq('priority', priority);
     }
 
     if (assignedTo) {
-      whereClause += ` AND wo.assigned_to = $${paramIndex}`;
-      params.push(assignedTo);
-      paramIndex++;
+      query = query.eq('assigned_to', assignedTo);
     }
 
     if (projectId) {
-      whereClause += ` AND wo.project_id = $${paramIndex}`;
-      params.push(projectId);
-      paramIndex++;
+      query = query.eq('project_id', projectId);
     }
 
     if (teamId) {
-      whereClause += ` AND wo.team_id = $${paramIndex}`;
-      params.push(teamId);
-      paramIndex++;
+      query = query.eq('team_id', teamId);
     }
 
     if (search) {
-      whereClause += ` AND (wo.title ILIKE $${paramIndex} OR wo.description ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
-      paramIndex++;
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-    // Get total count
-    const countQuery = `
-      SELECT COUNT(*) 
-      FROM work_orders wo 
-      LEFT JOIN users u ON wo.assigned_to = u.id 
-      ${whereClause}
-    `;
+    // Ordenar y paginar
+    query = query
+      .order(sortBy, { ascending: sortOrder.toLowerCase() === 'asc' })
+      .range(offset, offset + limit - 1);
 
-    const countResult = await db.query(countQuery, params);
-    const totalItems = parseInt(countResult.rows[0].count);
+    const { data: workOrders, error, count } = await query;
 
-    // Get work orders
-    const query = `
-      SELECT 
-        wo.*,
-        u.first_name || ' ' || u.last_name as assigned_to_name,
-        creator.first_name || ' ' || creator.last_name as created_by_name,
-        t.name as team_name,
-        p.name as project_name
-      FROM work_orders wo
-      LEFT JOIN users u ON wo.assigned_to = u.id
-      LEFT JOIN users creator ON wo.created_by = creator.id
-      LEFT JOIN teams t ON wo.team_id = t.id
-      LEFT JOIN projects p ON wo.project_id = p.id
-      ${whereClause}
-      ORDER BY wo.${sortBy} ${sortOrder}
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-
-    params.push(limit, offset);
-    const result = await db.query(query, params);
+    if (error) {
+      logger.error('Error getting work orders:', error);
+      return res.status(500).json({ message: 'Error al obtener órdenes de trabajo' });
+    }
 
     res.json({
-      workOrders: result.rows,
+      workOrders: workOrders || [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        totalItems,
-        totalPages: Math.ceil(totalItems / limit),
-        hasNext: page * limit < totalItems,
+        totalItems: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+        hasNext: page * limit < (count || 0),
         hasPrev: page > 1
       }
     });
 
   } catch (error) {
     logger.error('Get work orders error:', error);
-    res.status(500).json({ error: 'Failed to get work orders' });
+    res.status(500).json({ message: 'Error al obtener órdenes de trabajo' });
   }
 });
 
-// Get single work order
-router.get('/:id', authenticateToken, authorizeWorkOrderAccess, async (req, res) => {
-  try {
-    const db = getDB();
-    const { id } = req.params;
-
-    const result = await db.query(`
-      SELECT 
-        wo.*,
-        u.first_name || ' ' || u.last_name as assigned_to_name,
-        u.email as assigned_to_email,
-        creator.first_name || ' ' || creator.last_name as created_by_name,
-        t.name as team_name,
-        p.name as project_name
-      FROM work_orders wo
-      LEFT JOIN users u ON wo.assigned_to = u.id
-      LEFT JOIN users creator ON wo.created_by = creator.id
-      LEFT JOIN teams t ON wo.team_id = t.id
-      LEFT JOIN projects p ON wo.project_id = p.id
-      WHERE wo.id = $1
-    `, [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Work order not found' });
-    }
-
-    // Get work order history
-    const historyResult = await db.query(`
-      SELECT 
-        woh.*,
-        u.first_name || ' ' || u.last_name as user_name
-      FROM work_order_history woh
-      LEFT JOIN users u ON woh.user_id = u.id
-      WHERE woh.work_order_id = $1
-      ORDER BY woh.timestamp DESC
-    `, [id]);
-
-    const workOrder = result.rows[0];
-    workOrder.history = historyResult.rows;
-
-    res.json({ workOrder });
-
-  } catch (error) {
-    logger.error('Get work order error:', error);
-    res.status(500).json({ error: 'Failed to get work order' });
-  }
-});
-
-// Create work order
+// ============================================
+// CREATE WORK ORDER (HU-04)
+// ============================================
 router.post('/', authenticateToken, [
-  body('title').notEmpty().withMessage('Title is required'),
-  body('description').optional(),
-  body('assignedTo').optional().isInt().withMessage('Assigned to must be a valid user ID'),
-  body('projectId').optional().isInt().withMessage('Project ID must be valid'),
-  body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
-  body('estimatedHours').optional().isFloat({ min: 0 }).withMessage('Estimated hours must be positive'),
-  body('dueDate').optional().isISO8601().withMessage('Due date must be valid'),
+  body('title')
+    .trim()
+    .notEmpty()
+    .withMessage('El título es obligatorio')
+    .isLength({ min: 3, max: 200 })
+    .withMessage('El título debe tener entre 3 y 200 caracteres'),
+  body('description')
+    .trim()
+    .notEmpty()
+    .withMessage('La descripción es obligatoria')
+    .isLength({ min: 10 })
+    .withMessage('La descripción debe tener al menos 10 caracteres'),
+  body('priority')
+    .notEmpty()
+    .withMessage('La prioridad es obligatoria')
+    .isIn(['low', 'medium', 'high', 'critical'])
+    .withMessage('Prioridad inválida'),
+  body('assignedTo').optional({ nullable: true, checkFalsy: true }).isUUID().withMessage('ID de usuario inválido'),
+  body('projectId').optional({ nullable: true, checkFalsy: true }).isUUID().withMessage('ID de proyecto inválido'),
+  body('estimatedHours').optional({ nullable: true, checkFalsy: true }).isFloat({ min: 0 }).withMessage('Las horas estimadas deben ser positivas'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        message: 'Por favor completa todos los campos obligatorios',
+        errors: errors.array().map(err => ({
+          field: err.path,
+          message: err.msg
+        }))
+      });
     }
 
-    const db = getDB();
+    const supabase = getDB();
     const {
       title,
       description,
+      priority,
       assignedTo,
       projectId,
-      priority = 'medium',
       estimatedHours,
       dueDate,
       location,
-      equipmentId,
+      equipmentId
     } = req.body;
 
-    // Determine team_id based on assigned user or current user's team
-    let teamId = req.user.teamId;
-    if (assignedTo) {
-      const userResult = await db.query('SELECT team_id FROM users WHERE id = $1', [assignedTo]);
-      if (userResult.rows.length > 0) {
-        teamId = userResult.rows[0].team_id;
+    // Validar que el usuario asignado existe y está en el equipo correcto
+    if (assignedTo && req.user.role === 'team_leader') {
+      const { data: assignedUser, error: userError } = await supabase
+        .from('users')
+        .select('id, team_id')
+        .eq('id', assignedTo)
+        .single();
+
+      if (userError || !assignedUser) {
+        return res.status(400).json({ message: 'Usuario asignado no encontrado' });
+      }
+
+      if (assignedUser.team_id !== req.user.team_id) {
+        return res.status(403).json({ message: 'Solo puedes asignar órdenes a tu equipo' });
       }
     }
 
-    const result = await db.query(`
-      INSERT INTO work_orders (
-        title, description, assigned_to, created_by, project_id, team_id,
-        priority, estimated_hours, due_date, location, equipment_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING *
-    `, [
-      title, description, assignedTo, req.user.userId, projectId, teamId,
-      priority, estimatedHours, dueDate, location, equipmentId
-    ]);
+    // Crear la orden de trabajo
+    const { data: newWorkOrder, error: insertError } = await supabase
+      .from('work_orders')
+      .insert({
+        title: title.trim(),
+        description: description.trim(),
+        priority,
+        status: 'pending',
+        assigned_to: assignedTo || req.user.userId, // Si no asigna a nadie, se asigna a sí mismo
+        created_by: req.user.userId,
+        team_id: req.user.team_id,
+        plant_id: req.user.plant_id,
+        project_id: projectId || null,
+        estimated_hours: estimatedHours || null,
+        due_date: dueDate || null,
+        location: location || null,
+        equipment_id: equipmentId || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select(`
+        *,
+        assigned_user:users!work_orders_assigned_to_fkey(id, first_name, last_name, email),
+        creator:users!work_orders_created_by_fkey(id, first_name, last_name),
+        team:teams(id, name),
+        project:projects(id, name)
+      `)
+      .single();
 
-    const workOrder = result.rows[0];
+    if (insertError) {
+      logger.error('Error creating work order:', insertError);
+      return res.status(500).json({ message: 'Error al crear la orden de trabajo' });
+    }
+
+    // Log de auditoría
+    await supabase
+      .from('work_order_history')
+      .insert({
+        work_order_id: newWorkOrder.id,
+        user_id: req.user.userId,
+        action: 'created',
+        changes: JSON.stringify({ status: 'pending' }),
+        created_at: new Date().toISOString()
+      });
+
+    logger.info('Work order created:', {
+      id: newWorkOrder.id,
+      title: newWorkOrder.title,
+      created_by: req.user.userId
+    });
 
     res.status(201).json({
-      message: 'Work order created successfully',
-      workOrder
+      message: 'Orden de trabajo creada exitosamente',
+      workOrder: newWorkOrder
     });
 
   } catch (error) {
     logger.error('Create work order error:', error);
-    res.status(500).json({ error: 'Failed to create work order' });
+    res.status(500).json({ message: 'Error al crear la orden de trabajo' });
   }
 });
 
-// Update work order
+// ============================================
+// GET SINGLE WORK ORDER
+// ============================================
+router.get('/:id', authenticateToken, authorizeWorkOrderAccess, async (req, res) => {
+  try {
+    const supabase = getDB();
+    const { id } = req.params;
+
+    // Get base work order
+    const { data: workOrder, error } = await supabase
+      .from('work_orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !workOrder) {
+      return res.status(404).json({ message: 'Orden de trabajo no encontrada' });
+    }
+
+    // Get related data separately to avoid relation errors
+    const [assignedUserRes, creatorRes, teamRes, projectRes] = await Promise.all([
+      workOrder.assigned_to ? supabase.from('users').select('id, first_name, last_name, email, role').eq('id', workOrder.assigned_to).single() : Promise.resolve({ data: null }),
+      workOrder.created_by ? supabase.from('users').select('id, first_name, last_name, email').eq('id', workOrder.created_by).single() : Promise.resolve({ data: null }),
+      workOrder.team_id ? supabase.from('teams').select('id, name').eq('id', workOrder.team_id).single() : Promise.resolve({ data: null }),
+      workOrder.project_id ? supabase.from('projects').select('id, name, description').eq('id', workOrder.project_id).single() : Promise.resolve({ data: null })
+    ]);
+
+    // Attach related data
+    workOrder.assigned_user = assignedUserRes.data;
+    workOrder.creator = creatorRes.data;
+    workOrder.team = teamRes.data;
+    workOrder.project = projectRes.data;
+
+    res.json({
+      workOrder
+    });
+
+  } catch (error) {
+    logger.error('Get work order error:', error);
+    res.status(500).json({ message: 'Error al obtener la orden de trabajo' });
+  }
+});
+
+// ============================================
+// UPDATE WORK ORDER
+// ============================================
 router.put('/:id', authenticateToken, authorizeWorkOrderAccess, [
-  body('title').optional().notEmpty().withMessage('Title cannot be empty'),
-  body('status').optional().isIn(['pending', 'in_progress', 'completed', 'cancelled', 'on_hold']),
+  body('title').optional().trim().isLength({ min: 3, max: 200 }),
+  body('description').optional().trim().isLength({ min: 10 }),
   body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
+  body('status').optional().isIn(['pending', 'in_progress', 'completed', 'cancelled', 'on_hold']),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        message: 'Error de validación',
+        errors: errors.array() 
+      });
     }
 
-    const db = getDB();
+    const supabase = getDB();
     const { id } = req.params;
-    const updateData = req.body;
+    const updates = { ...req.body };
 
-    // Handle status changes
-    if (updateData.status === 'in_progress' && req.workOrder.status === 'pending') {
-      updateData.started_at = new Date();
-    }
-    
-    if (updateData.status === 'completed' && req.workOrder.status !== 'completed') {
-      updateData.completed_at = new Date();
-    }
+    // Remover campos que no se deben actualizar
+    delete updates.id;
+    delete updates.created_by;
+    delete updates.created_at;
 
-    // Build update query dynamically
-    const updateFields = [];
-    const values = [];
-    let paramIndex = 1;
+    // Agregar timestamp de actualización
+    updates.updated_at = new Date().toISOString();
 
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] !== undefined) {
-        updateFields.push(`${key} = $${paramIndex}`);
-        values.push(updateData[key]);
-        paramIndex++;
-      }
-    });
-
-    if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
+    // Si cambia el estado a completed, agregar fecha de completado
+    if (updates.status === 'completed' && !updates.completed_at) {
+      updates.completed_at = new Date().toISOString();
     }
 
-    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-    updateFields.push(`updated_by = $${paramIndex}`);
-    values.push(req.user.userId);
-    paramIndex++;
+    const { data: updatedWorkOrder, error } = await supabase
+      .from('work_orders')
+      .update(updates)
+      .eq('id', id)
+      .select(`
+        *,
+        assigned_user:users!work_orders_assigned_to_fkey(id, first_name, last_name, email),
+        creator:users!work_orders_created_by_fkey(id, first_name, last_name),
+        team:teams(id, name),
+        project:projects(id, name)
+      `)
+      .single();
 
-    values.push(id);
+    if (error) {
+      logger.error('Error updating work order:', error);
+      return res.status(500).json({ message: 'Error al actualizar la orden de trabajo' });
+    }
 
-    const query = `
-      UPDATE work_orders 
-      SET ${updateFields.join(', ')}
-      WHERE id = $${paramIndex}
-      RETURNING *
-    `;
-
-    const result = await db.query(query, values);
+    // Registrar cambio en historial
+    await supabase
+      .from('work_order_history')
+      .insert({
+        work_order_id: id,
+        user_id: req.user.userId,
+        action: 'updated',
+        changes: JSON.stringify(updates),
+        created_at: new Date().toISOString()
+      });
 
     res.json({
-      message: 'Work order updated successfully',
-      workOrder: result.rows[0]
+      message: 'Orden de trabajo actualizada exitosamente',
+      workOrder: updatedWorkOrder
     });
 
   } catch (error) {
     logger.error('Update work order error:', error);
-    res.status(500).json({ error: 'Failed to update work order' });
+    res.status(500).json({ message: 'Error al actualizar la orden de trabajo' });
   }
 });
 
-// Delete work order
-router.delete('/:id', authenticateToken, authorizeWorkOrderAccess, async (req, res) => {
+// ============================================
+// DELETE WORK ORDER
+// ============================================
+router.delete('/:id', authenticateToken, authorizeRoles('admin', 'supervisor'), async (req, res) => {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const { id } = req.params;
 
-    // Check if user has permission to delete
-    if (req.user.role === 'employee') {
-      return res.status(403).json({ error: 'Employees cannot delete work orders' });
+    const { error } = await supabase
+      .from('work_orders')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      logger.error('Error deleting work order:', error);
+      return res.status(500).json({ message: 'Error al eliminar la orden de trabajo' });
     }
 
-    await db.query('DELETE FROM work_orders WHERE id = $1', [id]);
+    logger.info('Work order deleted:', {
+      id,
+      deleted_by: req.user.userId
+    });
 
-    res.json({ message: 'Work order deleted successfully' });
+    res.json({
+      message: 'Orden de trabajo eliminada exitosamente'
+    });
 
   } catch (error) {
     logger.error('Delete work order error:', error);
-    res.status(500).json({ error: 'Failed to delete work order' });
+    res.status(500).json({ message: 'Error al eliminar la orden de trabajo' });
   }
 });
 
-// Get work order statistics
+// ============================================
+// GET WORK ORDER STATS
+// ============================================
 router.get('/stats/summary', authenticateToken, async (req, res) => {
   try {
-    const db = getDB();
-    let whereClause = '';
-    const params = [];
+    const supabase = getDB();
 
-    // Role-based filtering
+    // Filtro según rol
+    let baseQuery = supabase.from('work_orders').select('status, priority');
+
     if (req.user.role === 'employee') {
-      whereClause = 'WHERE assigned_to = $1';
-      params.push(req.user.userId);
+      baseQuery = baseQuery.eq('assigned_to', req.user.userId);
     } else if (req.user.role === 'team_leader') {
-      whereClause = 'WHERE team_id = $1';
-      params.push(req.user.teamId);
+      baseQuery = baseQuery.eq('team_id', req.user.team_id);
+    } else if (req.user.role === 'supervisor') {
+      if (req.user.plant_id) {
+        baseQuery = baseQuery.eq('plant_id', req.user.plant_id);
+      }
     }
 
-    const result = await db.query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE status = 'pending') as pending,
-        COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress,
-        COUNT(*) FILTER (WHERE status = 'completed') as completed,
-        COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled,
-        COUNT(*) FILTER (WHERE status = 'on_hold') as on_hold,
-        COUNT(*) FILTER (WHERE priority = 'critical') as critical,
-        COUNT(*) FILTER (WHERE due_date < CURRENT_DATE AND status != 'completed') as overdue,
-        AVG(EXTRACT(EPOCH FROM (completed_at - started_at))/3600) FILTER (WHERE completed_at IS NOT NULL) as avg_completion_hours
-      FROM work_orders
-      ${whereClause}
-    `, params);
+    const { data: workOrders, error } = await baseQuery;
 
-    res.json({ stats: result.rows[0] });
+    if (error) {
+      logger.error('Error getting stats:', error);
+      return res.status(500).json({ message: 'Error al obtener estadísticas' });
+    }
+
+    // Calcular estadísticas
+    const stats = {
+      total: workOrders.length,
+      byStatus: {
+        pending: workOrders.filter(wo => wo.status === 'pending').length,
+        in_progress: workOrders.filter(wo => wo.status === 'in_progress').length,
+        completed: workOrders.filter(wo => wo.status === 'completed').length,
+        cancelled: workOrders.filter(wo => wo.status === 'cancelled').length,
+        on_hold: workOrders.filter(wo => wo.status === 'on_hold').length,
+      },
+      byPriority: {
+        low: workOrders.filter(wo => wo.priority === 'low').length,
+        medium: workOrders.filter(wo => wo.priority === 'medium').length,
+        high: workOrders.filter(wo => wo.priority === 'high').length,
+        critical: workOrders.filter(wo => wo.priority === 'critical').length,
+      }
+    };
+
+    res.json({ stats });
 
   } catch (error) {
-    logger.error('Get work order stats error:', error);
-    res.status(500).json({ error: 'Failed to get work order statistics' });
+    logger.error('Get stats error:', error);
+    res.status(500).json({ message: 'Error al obtener estadísticas' });
   }
 });
 

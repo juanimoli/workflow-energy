@@ -6,116 +6,241 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Get users with role-based filtering
+// ============================================
+// GET USERS - Con filtrado por rol
+// ============================================
 router.get('/', authenticateToken, authorizeRoles('team_leader', 'supervisor', 'admin'), async (req, res) => {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const { page = 1, limit = 20, role, teamId, search } = req.query;
     const offset = (page - 1) * limit;
 
-    let whereClause = 'WHERE u.is_active = true';
-    const params = [];
-    let paramIndex = 1;
+    // Construir query según rol
+    let query = supabase
+      .from('users')
+      .select(`
+        id,
+        username,
+        email,
+        first_name,
+        last_name,
+        role,
+        team_id,
+        plant_id,
+        is_active,
+        created_at,
+        last_login,
+        team:teams!users_team_id_fkey(id, name),
+        plant:plants(id, name)
+      `, { count: 'exact' })
+      .eq('is_active', true);
 
-    // Role-based filtering
+    // Filtrado por rol del usuario autenticado
     if (req.user.role === 'team_leader') {
-      whereClause += ` AND u.team_id = $${paramIndex}`;
-      params.push(req.user.teamId);
-      paramIndex++;
+      query = query.eq('team_id', req.user.team_id);
+    } else if (req.user.role === 'supervisor') {
+      if (req.user.plant_id) {
+        query = query.eq('plant_id', req.user.plant_id);
+      }
     }
 
+    // Aplicar filtros adicionales
     if (role) {
-      whereClause += ` AND u.role = $${paramIndex}`;
-      params.push(role);
-      paramIndex++;
+      query = query.eq('role', role);
     }
 
     if (teamId) {
-      whereClause += ` AND u.team_id = $${paramIndex}`;
-      params.push(teamId);
-      paramIndex++;
+      query = query.eq('team_id', teamId);
     }
 
     if (search) {
-      whereClause += ` AND (u.first_name ILIKE $${paramIndex} OR u.last_name ILIKE $${paramIndex} OR u.username ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
-      paramIndex++;
+      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,username.ilike.%${search}%,email.ilike.%${search}%`);
     }
 
-    // Get total count
-    const countResult = await db.query(`
-      SELECT COUNT(*) 
-      FROM users u 
-      LEFT JOIN teams t ON u.team_id = t.id 
-      ${whereClause}
-    `, params);
+    // Ordenar y paginar
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
-    const totalItems = parseInt(countResult.rows[0].count);
+    const { data: users, error, count } = await query;
 
-    // Get users
-    const query = `
-      SELECT 
-        u.id, u.username, u.email, u.first_name, u.last_name, u.role,
-        u.team_id, t.name as team_name, u.plant_id, p.name as plant_name,
-        u.last_login, u.created_at
-      FROM users u
-      LEFT JOIN teams t ON u.team_id = t.id
-      LEFT JOIN plants p ON u.plant_id = p.id
-      ${whereClause}
-      ORDER BY u.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-
-    params.push(limit, offset);
-    const result = await db.query(query, params);
+    if (error) {
+      logger.error('Error getting users:', error);
+      return res.status(500).json({ message: 'Error al obtener usuarios' });
+    }
 
     res.json({
-      users: result.rows,
+      users: users || [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        totalItems,
-        totalPages: Math.ceil(totalItems / limit)
+        totalItems: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+        hasNext: page * limit < (count || 0),
+        hasPrev: page > 1
       }
     });
 
   } catch (error) {
     logger.error('Get users error:', error);
-    res.status(500).json({ error: 'Failed to get users' });
+    res.status(500).json({ message: 'Error al obtener usuarios' });
   }
 });
 
-// Get user by ID
+// ============================================
+// GET SINGLE USER
+// ============================================
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const { id } = req.params;
 
-    // Check permission
-    if (req.user.role === 'employee' && parseInt(id) !== req.user.userId) {
-      return res.status(403).json({ error: 'Access denied' });
+    // Verificar permisos
+    if (req.user.role === 'employee' && req.user.userId !== id) {
+      return res.status(403).json({ message: 'No tienes permiso para ver este usuario' });
     }
 
-    const result = await db.query(`
-      SELECT 
-        u.id, u.username, u.email, u.first_name, u.last_name, u.role,
-        u.team_id, t.name as team_name, u.plant_id, p.name as plant_name,
-        u.last_login, u.created_at
-      FROM users u
-      LEFT JOIN teams t ON u.team_id = t.id
-      LEFT JOIN plants p ON u.plant_id = p.id
-      WHERE u.id = $1 AND u.is_active = true
-    `, [id]);
+    const { data: user, error } = await supabase
+      .from('users')
+      .select(`
+        id,
+        username,
+        email,
+        first_name,
+        last_name,
+        role,
+        team_id,
+        plant_id,
+        is_active,
+        created_at,
+        last_login,
+        team:teams!users_team_id_fkey(id, name),
+        plant:plants(id, name)
+      `)
+      .eq('id', id)
+      .single();
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+    if (error || !user) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    res.json({ user: result.rows[0] });
+    // Team leaders solo pueden ver usuarios de su equipo
+    if (req.user.role === 'team_leader' && user.team_id !== req.user.team_id) {
+      return res.status(403).json({ message: 'No tienes permiso para ver este usuario' });
+    }
+
+    res.json({ user });
 
   } catch (error) {
     logger.error('Get user error:', error);
-    res.status(500).json({ error: 'Failed to get user' });
+    res.status(500).json({ message: 'Error al obtener usuario' });
+  }
+});
+
+// ============================================
+// UPDATE USER
+// ============================================
+router.put('/:id', authenticateToken, authorizeRoles('supervisor', 'admin'), [
+  body('firstName').optional().trim().isLength({ min: 2 }),
+  body('lastName').optional().trim().isLength({ min: 2 }),
+  body('role').optional().isIn(['employee', 'team_leader', 'supervisor', 'admin']),
+  body('teamId').optional().isUUID(),
+  body('plantId').optional().isUUID(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Error de validación',
+        errors: errors.array() 
+      });
+    }
+
+    const supabase = getDB();
+    const { id } = req.params;
+    const updates = {};
+
+    // Solo actualizar campos permitidos
+    if (req.body.firstName) updates.first_name = req.body.firstName;
+    if (req.body.lastName) updates.last_name = req.body.lastName;
+    if (req.body.role && req.user.role === 'admin') updates.role = req.body.role; // Solo admin puede cambiar roles
+    if (req.body.teamId) updates.team_id = req.body.teamId;
+    if (req.body.plantId) updates.plant_id = req.body.plantId;
+    
+    updates.updated_at = new Date().toISOString();
+
+    const { data: updatedUser, error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', id)
+      .select(`
+        id,
+        username,
+        email,
+        first_name,
+        last_name,
+        role,
+        team_id,
+        plant_id,
+        team:teams!users_team_id_fkey(id, name),
+        plant:plants(id, name)
+      `)
+      .single();
+
+    if (error) {
+      logger.error('Error updating user:', error);
+      return res.status(500).json({ message: 'Error al actualizar usuario' });
+    }
+
+    res.json({
+      message: 'Usuario actualizado exitosamente',
+      user: updatedUser
+    });
+
+  } catch (error) {
+    logger.error('Update user error:', error);
+    res.status(500).json({ message: 'Error al actualizar usuario' });
+  }
+});
+
+// ============================================
+// DELETE USER (soft delete)
+// ============================================
+router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const supabase = getDB();
+    const { id } = req.params;
+
+    // No permitir eliminar a sí mismo
+    if (req.user.userId === id) {
+      return res.status(400).json({ message: 'No puedes eliminar tu propia cuenta' });
+    }
+
+    const { error } = await supabase
+      .from('users')
+      .update({ 
+        is_active: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (error) {
+      logger.error('Error deleting user:', error);
+      return res.status(500).json({ message: 'Error al eliminar usuario' });
+    }
+
+    logger.info('User deactivated:', {
+      id,
+      deactivated_by: req.user.userId
+    });
+
+    res.json({
+      message: 'Usuario desactivado exitosamente'
+    });
+
+  } catch (error) {
+    logger.error('Delete user error:', error);
+    res.status(500).json({ message: 'Error al eliminar usuario' });
   }
 });
 

@@ -63,9 +63,10 @@ const WorkOrders = () => {
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null)
 
   useEffect(() => {
+    if (!user) return
     loadWorkOrders()
     loadStats()
-  }, [pagination.page, pagination.limit, filters])
+  }, [user, pagination.page, pagination.limit, filters])
 
   const loadWorkOrders = async () => {
     try {
@@ -205,6 +206,7 @@ const WorkOrders = () => {
   }
 
   const canEdit = (workOrder) => {
+    if (!user || !workOrder) return false
     if (user.role === 'admin' || user.role === 'supervisor') return true
     if (user.role === 'team_leader' && workOrder.team_id === user.teamId) return true
     if (user.role === 'employee' && workOrder.assigned_to === user.id) return true
@@ -212,6 +214,7 @@ const WorkOrders = () => {
   }
 
   const getUserRoleTitle = () => {
+    if (!user) return 'Órdenes de Trabajo'
     const titles = {
       employee: 'Mis Órdenes de Trabajo',
       team_leader: 'Órdenes del Equipo',
@@ -235,7 +238,7 @@ const WorkOrders = () => {
         <Typography variant="h4">
           {getUserRoleTitle()}
         </Typography>
-        {(user.role !== 'employee' || user.role === 'employee') && (
+        {user && (
           <Button
             variant="contained"
             startIcon={<AddIcon />}

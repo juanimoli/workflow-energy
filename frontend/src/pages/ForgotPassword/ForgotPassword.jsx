@@ -23,7 +23,7 @@ const ForgotPassword = () => {
     e.preventDefault()
     
     if (!email) {
-      setError('Por favor ingresa tu correo eletronico')
+      setError('Por favor ingresa tu correo electrónico')
       return
     }
 
@@ -32,10 +32,19 @@ const ForgotPassword = () => {
     setMessage('')
 
     try {
-      const response = await api.post('/auth/forgot-pasword', { email })
-      setMessage(response.data.message || 'Se ha enviado un enlace a tu correo')
+      const response = await api.post('/auth/forgot-password', { email })
+      const successMessage = response.data.message || 'Se ha enviado un enlace a tu correo'
+      setMessage(successMessage)
+      toast.success(successMessage, {
+        duration: 5000,
+        icon: '📧'
+      })
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.error || 'Error al procesar solicitud')
+      const errorMessage = err.response?.data?.message || err.response?.data?.error || 'Error al procesar solicitud'
+      setError(errorMessage)
+      toast.error(errorMessage, {
+        duration: 5000
+      })
     } finally {
       setLoading(false)
     }
@@ -75,7 +84,7 @@ const ForgotPassword = () => {
             Recuperar Contraseña
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2, textAlign: 'center' }}>
-            Ingresa tu correo eletronico y te enviaremos un enlaze para restablecer tu pasword
+            Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña
           </Typography>
 
           {error && (
@@ -96,7 +105,7 @@ const ForgotPassword = () => {
               required
               fullWidth
               id="email"
-              label="Correo Eletronico"
+              label="Correo Electrónico"
               name="email"
               autoComplete="email"
               autoFocus
@@ -112,7 +121,7 @@ const ForgotPassword = () => {
               sx={{ mt: 3, mb: 2 }}
               disabled={loading}
             >
-              {loading ? 'Enviando...' : 'Enviar Enlaze de Recuperación'}
+              {loading ? 'Enviando...' : 'Enviar Enlace de Recuperación'}
             </Button>
             
             <Box sx={{ textAlign: 'center' }}>

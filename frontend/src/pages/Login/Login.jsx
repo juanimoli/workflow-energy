@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import {
   Box,
   Paper,
@@ -33,8 +34,16 @@ const Login = () => {
 
     try {
       await login({ email, password })
+      toast.success('¡Bienvenido!', {
+        duration: 3000,
+        icon: '👋'
+      })
     } catch (err) {
-      setError(err.message || 'Login failed')
+      const errorMessage = err.message || 'Error al iniciar sesión'
+      setError(errorMessage)
+      toast.error(errorMessage, {
+        duration: 5000
+      })
     } finally {
       setLoading(false)
     }
@@ -87,7 +96,7 @@ const Login = () => {
               required
               fullWidth
               id="email"
-              label="Correo Eletronico"
+              label="Correo Electrónico"
               name="email"
               autoComplete="email"
               autoFocus
@@ -100,7 +109,7 @@ const Login = () => {
               required
               fullWidth
               name="password"
-              label="Pasword"
+              label="Contraseña"
               type="password"
               id="password"
               autoComplete="current-password"
@@ -132,7 +141,7 @@ const Login = () => {
             
             <Box sx={{ mt: 2 }}>
               <Typography variant="body2" color="text.secondary">
-                Cuentas de demonstración:
+                Cuentas de demostración:
               </Typography>
               <Typography variant="caption" display="block">
                 Admin: admin@empresa.com / password

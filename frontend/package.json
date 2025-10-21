@@ -1,7 +1,7 @@
 {
   "name": "work-order-frontend",
-  "version": "1.0.0",
-  "description": "Frontend web application for Work Order Management System",
+  "version": "1.2.0",
+  "description": "Frontend web application for Work Order Management System - Sprint 3",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",

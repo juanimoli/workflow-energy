@@ -34,8 +34,9 @@ const WorkOrderDetail = () => {
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    if (!user) return
     loadWorkOrder()
-  }, [id])
+  }, [user, id])
 
   const loadWorkOrder = async () => {
     try {
@@ -84,7 +85,7 @@ const WorkOrderDetail = () => {
   }
 
   const canEdit = () => {
-    if (!workOrder) return false
+    if (!user || !workOrder) return false
     if (user.role === 'admin' || user.role === 'supervisor') return true
     if (user.role === 'team_leader' && workOrder.team_id === user.teamId) return true
     if (user.role === 'employee' && workOrder.assigned_to === user.id) return true

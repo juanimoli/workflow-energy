@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 // Create axios instance with auth interceptor
 const api = axios.create({
@@ -38,49 +38,49 @@ api.interceptors.response.use(
 export const workOrderService = {
   // Get work orders with filtering and pagination
   async getWorkOrders(params = {}) {
-    const response = await api.get('/work-orders', { params })
+    const response = await api.get('/api/work-orders', { params })
     return response.data
   },
 
   // Get single work order
   async getWorkOrder(id) {
-    const response = await api.get(`/work-orders/${id}`)
+    const response = await api.get(`/api/work-orders/${id}`)
     return response.data
   },
 
   // Create work order
   async createWorkOrder(workOrderData) {
-    const response = await api.post('/work-orders', workOrderData)
+    const response = await api.post('/api/work-orders', workOrderData)
     return response.data
   },
 
   // Update work order
   async updateWorkOrder(id, updateData) {
-    const response = await api.put(`/work-orders/${id}`, updateData)
+    const response = await api.put(`/api/work-orders/${id}`, updateData)
     return response.data
   },
 
   // Delete work order
   async deleteWorkOrder(id) {
-    const response = await api.delete(`/work-orders/${id}`)
+    const response = await api.delete(`/api/work-orders/${id}`)
     return response.data
   },
 
   // Get work order statistics
   async getWorkOrderStats() {
-    const response = await api.get('/work-orders/stats/summary')
+    const response = await api.get('/api/work-orders/stats/summary')
     return response.data
   },
 
   // Update work order status
   async updateStatus(id, status) {
-    const response = await api.put(`/work-orders/${id}`, { status })
+    const response = await api.put(`/api/work-orders/${id}`, { status })
     return response.data
   },
 
   // Assign work order
   async assignWorkOrder(id, assignedTo) {
-    const response = await api.put(`/work-orders/${id}`, { assignedTo })
+    const response = await api.put(`/api/work-orders/${id}`, { assignedTo })
     return response.data
   },
 }

@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 // Create axios instance with auth interceptor
 const api = axios.create({
@@ -24,19 +24,19 @@ api.interceptors.request.use(
 export const userService = {
   // Get users (filtered by role permissions)
   async getUsers(params = {}) {
-    const response = await api.get('/users', { params })
+    const response = await api.get('/api/users', { params })
     return response.data
   },
 
   // Get user by ID
   async getUser(id) {
-    const response = await api.get(`/users/${id}`)
+    const response = await api.get(`/api/users/${id}`)
     return response.data
   },
 
   // Get team members (for team leaders)
   async getTeamMembers() {
-    const response = await api.get('/users/team/members')
+    const response = await api.get('/api/users/team/members')
     return response.data
   },
 }

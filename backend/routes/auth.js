@@ -486,16 +486,18 @@ router.get('/me', authenticateToken, async (req, res) => {
     const user = users;
 
     res.json({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      firstName: user.first_name,
-      lastName: user.last_name,
-      role: user.role,
-      teamId: user.team_id,
-      teamName: user.teams?.name,
-      plantId: user.plant_id,
-      plantName: user.plants?.name
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        teamId: user.team_id,
+        teamName: user.teams?.name,
+        plantId: user.plant_id,
+        plantName: user.plants?.name
+      }
     });
   } catch (error) {
     logger.error('Get current user error:', error);

@@ -50,6 +50,8 @@ const CreateWorkOrder = () => {
 
   useEffect(() => {
     const loadData = async () => {
+      if (!user) return
+      
       try {
         setLoadingData(true)
         
@@ -72,7 +74,7 @@ const CreateWorkOrder = () => {
     }
 
     loadData()
-  }, [user.role])
+  }, [user, user?.role])
 
   const handleChange = (field) => (event) => {
     const value = event.target.value
@@ -223,7 +225,7 @@ const CreateWorkOrder = () => {
               </Grid>
 
               {/* Asignado a (solo para líderes y superiores) */}
-              {(user.role === 'team_leader' || user.role === 'supervisor' || user.role === 'admin') && (
+              {user && (user.role === 'team_leader' || user.role === 'supervisor' || user.role === 'admin') && (
                 <Grid item xs={12} md={6}>
                   <Autocomplete
                     options={users}

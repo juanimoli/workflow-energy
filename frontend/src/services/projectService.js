@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 // Create axios instance with auth interceptor
 const api = axios.create({
@@ -24,13 +24,13 @@ api.interceptors.request.use(
 export const projectService = {
   // Get projects
   async getProjects(params = {}) {
-    const response = await api.get('/projects', { params })
+    const response = await api.get('/api/projects', { params })
     return response.data
   },
 
   // Get project by ID
   async getProject(id) {
-    const response = await api.get(`/projects/${id}`)
+    const response = await api.get(`/api/projects/${id}`)
     return response.data
   },
 }

@@ -139,15 +139,25 @@ const authorizeWorkOrderAccess = async (req, res, next) => {
     // Get work order details
     const { data: workOrder, error } = await supabase
       .from('work_orders')
-      .select(`
-        *,
-        assigned_user:users!work_orders_assigned_to_fkey(id, team_id)
-      `)
+      .select('*')
       .eq('id', workOrderId)
       .single();
 
     if (error || !workOrder) {
       return res.status(404).json({ message: 'Orden de trabajo no encontrada' });
+    }
+
+    // Get assigned user info if exists
+    if (workOrder.assigned_to) {
+      const { data: assignedUser } = await supabase
+        .from('users')
+        .select('id, team_id')
+        .eq('id', workOrder.assigned_to)
+        .single();
+      
+      if (assignedUser) {
+        workOrder.assigned_user = assignedUser;
+      }
     }
 
     // Admin has access to all work orders
@@ -164,7 +174,7 @@ const authorizeWorkOrderAccess = async (req, res, next) => {
 
     // Team leaders can access work orders from their team
     if (req.user.role === 'team_leader') {
-      if (workOrder.assigned_user?.team_id === req.user.team_id) {
+      if (workOrder.team_id === req.user.team_id || workOrder.assigned_user?.team_id === req.user.team_id) {
         req.workOrder = workOrder;
         return next();
       }

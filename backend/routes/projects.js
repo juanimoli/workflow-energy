@@ -1,111 +1,116 @@
 const express = require('express');
-const { query } = require('express-validator');
+const { query, validationResult } = require('express-validator');
 const { getDB } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Get projects
+// ============================================
+// GET PROJECTS
+// ============================================
 router.get('/', authenticateToken, [
-  query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
-  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
+  query('page').optional().isInt({ min: 1 }).withMessage('La página debe ser un número positivo'),
+  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('El límite debe estar entre 1 y 100'),
 ], async (req, res) => {
   try {
-    const db = getDB();
-    const { page = 1, limit = 20, status, search } = req.query;
-    const offset = (page - 1) * limit;
-
-    let whereClause = 'WHERE 1=1';
-    const params = [];
-    let paramIndex = 1;
-
-    // Filter by plant if user is restricted to a specific plant
-    if (req.user.plantId) {
-      whereClause += ` AND p.plant_id = $${paramIndex}`;
-      params.push(req.user.plantId);
-      paramIndex++;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Error en los parámetros',
+        errors: errors.array() 
+      });
     }
 
+    const supabase = getDB();
+    let { page = 1, limit = 20, status, search } = req.query;
+    
+    // Limpiar strings vacíos
+    status = status && status.trim() ? status : undefined;
+    search = search && search.trim() ? search : undefined;
+    
+    const offset = (page - 1) * limit;
+
+    // Construir query
+    let query = supabase
+      .from('projects')
+      .select(`
+        *,
+        plant:plants(id, name),
+        creator:users!projects_created_by_fkey(id, first_name, last_name)
+      `, { count: 'exact' });
+
+    // Filtrar por planta si el usuario tiene restricción
+    if (req.user.plant_id) {
+      query = query.eq('plant_id', req.user.plant_id);
+    }
+
+    // Aplicar filtros
     if (status) {
-      whereClause += ` AND p.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
+      query = query.eq('status', status);
     }
 
     if (search) {
-      whereClause += ` AND (p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
-      paramIndex++;
+      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-    // Get total count
-    const countResult = await db.query(`
-      SELECT COUNT(*) 
-      FROM projects p 
-      ${whereClause}
-    `, params);
+    // Ordenar y paginar
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
-    const totalItems = parseInt(countResult.rows[0].count);
+    const { data: projects, error, count } = await query;
 
-    // Get projects
-    const result = await db.query(`
-      SELECT 
-        p.*,
-        pl.name as plant_name,
-        u.first_name || ' ' || u.last_name as created_by_name
-      FROM projects p
-      LEFT JOIN plants pl ON p.plant_id = pl.id
-      LEFT JOIN users u ON p.created_by = u.id
-      ${whereClause}
-      ORDER BY p.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, [...params, limit, offset]);
+    if (error) {
+      logger.error('Error getting projects:', error);
+      return res.status(500).json({ message: 'Error al obtener proyectos' });
+    }
 
     res.json({
-      projects: result.rows,
+      projects: projects || [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        totalItems,
-        totalPages: Math.ceil(totalItems / limit),
-        hasNext: page * limit < totalItems,
+        totalItems: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+        hasNext: page * limit < (count || 0),
         hasPrev: page > 1
       }
     });
 
   } catch (error) {
     logger.error('Get projects error:', error);
-    res.status(500).json({ error: 'Failed to get projects' });
+    res.status(500).json({ message: 'Error al obtener proyectos' });
   }
 });
 
-// Get single project
+// ============================================
+// GET SINGLE PROJECT
+// ============================================
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const { id } = req.params;
 
-    const result = await db.query(`
-      SELECT 
-        p.*,
-        pl.name as plant_name,
-        u.first_name || ' ' || u.last_name as created_by_name
-      FROM projects p
-      LEFT JOIN plants pl ON p.plant_id = pl.id
-      LEFT JOIN users u ON p.created_by = u.id
-      WHERE p.id = $1
-    `, [id]);
+    const { data: project, error } = await supabase
+      .from('projects')
+      .select(`
+        *,
+        plant:plants(id, name),
+        creator:users!projects_created_by_fkey(id, first_name, last_name)
+      `)
+      .eq('id', id)
+      .single();
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
+    if (error || !project) {
+      return res.status(404).json({ message: 'Proyecto no encontrado' });
     }
 
-    res.json({ project: result.rows[0] });
+    res.json({ project });
 
   } catch (error) {
     logger.error('Get project error:', error);
-    res.status(500).json({ error: 'Failed to get project' });
+    res.status(500).json({ message: 'Error al obtener proyecto' });
   }
 });
 

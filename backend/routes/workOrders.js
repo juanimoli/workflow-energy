@@ -149,8 +149,8 @@ router.post('/', authenticateToken, [
     .withMessage('La prioridad es obligatoria')
     .isIn(['low', 'medium', 'high', 'critical'])
     .withMessage('Prioridad inválida'),
-  body('assignedTo').optional({ nullable: true, checkFalsy: true }).isUUID().withMessage('ID de usuario inválido'),
-  body('projectId').optional({ nullable: true, checkFalsy: true }).isUUID().withMessage('ID de proyecto inválido'),
+  body('assignedTo').optional({ nullable: true, checkFalsy: true }).isInt().withMessage('ID de usuario inválido'),
+  body('projectId').optional({ nullable: true, checkFalsy: true }).isInt().withMessage('ID de proyecto inválido'),
   body('estimatedHours').optional({ nullable: true, checkFalsy: true }).isFloat({ min: 0 }).withMessage('Las horas estimadas deben ser positivas'),
 ], async (req, res) => {
   try {

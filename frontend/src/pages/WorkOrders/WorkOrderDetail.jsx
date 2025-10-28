@@ -325,17 +325,6 @@ const WorkOrderDetail = () => {
                 </Grid>
               )}
 
-              {workOrder.location && (
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Ubicación
-                  </Typography>
-                  <Typography variant="body1">
-                    {workOrder.location}
-                  </Typography>
-                </Grid>
-              )}
-
               {workOrder.equipment_id && (
                 <Grid item xs={12} sm={6}>
                   <Typography variant="subtitle2" color="textSecondary">
@@ -343,6 +332,17 @@ const WorkOrderDetail = () => {
                   </Typography>
                   <Typography variant="body1">
                     {workOrder.equipment_id}
+                  </Typography>
+                </Grid>
+              )}
+
+              {workOrder.location && (
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                    📍 Ubicación
+                  </Typography>
+                  <Typography variant="body1">
+                    {workOrder.location}
                   </Typography>
                 </Grid>
               )}

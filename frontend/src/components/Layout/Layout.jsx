@@ -23,6 +23,7 @@ import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   Work as WorkIcon,
+  Groups as TeamsIcon,
   Assessment as ReportsIcon,
   Settings as SettingsIcon,
   AccountCircle as ProfileIcon,
@@ -62,12 +63,13 @@ const Layout = ({ children }) => {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Work Orders', icon: <WorkIcon />, path: '/work-orders' },
-    { text: 'Reports', icon: <ReportsIcon />, path: '/reports' },
+    { text: 'Órdenes', icon: <WorkIcon />, path: '/work-orders' },
+    { text: 'Equipos', icon: <TeamsIcon />, path: '/teams' },
+    { text: 'Reportes', icon: <ReportsIcon />, path: '/reports' },
   ]
 
   if (user?.role === 'admin' || user?.role === 'supervisor') {
-    menuItems.push({ text: 'Settings', icon: <SettingsIcon />, path: '/settings' })
+    menuItems.push({ text: 'Configuración', icon: <SettingsIcon />, path: '/settings' })
   }
 
   const drawer = (

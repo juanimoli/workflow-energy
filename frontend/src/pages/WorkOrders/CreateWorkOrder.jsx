@@ -14,6 +14,7 @@ import {
   Alert,
   CircularProgress,
   Autocomplete,
+  Link,
 } from '@mui/material'
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
@@ -33,6 +34,7 @@ const CreateWorkOrder = () => {
   const [users, setUsers] = useState([])
   const [projects, setProjects] = useState([])
   const [loadingData, setLoadingData] = useState(true)
+  const [gettingLocation, setGettingLocation] = useState(false)
   
   const [formData, setFormData] = useState({
     title: '',
@@ -106,6 +108,65 @@ const CreateWorkOrder = () => {
     }))
   }
 
+  const handleGetCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Tu navegador no soporta geolocalización')
+      return
+    }
+
+    setGettingLocation(true)
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords
+        
+        try {
+          // Intentar obtener dirección desde nuestro backend (evita CORS)
+          const response = await fetch(
+            `http://localhost:5000/api/geocode/reverse?lat=${latitude}&lon=${longitude}`
+          )
+          
+          if (response.ok) {
+            const data = await response.json()
+            const address = data.address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+            
+            setFormData(prev => ({
+              ...prev,
+              location: address
+            }))
+            toast.success('📍 Ubicación obtenida correctamente')
+          } else {
+            // Si falla, usar coordenadas formateadas
+            setFormData(prev => ({
+              ...prev,
+              location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+            }))
+            toast.success('📍 Ubicación obtenida')
+          }
+        } catch (error) {
+          console.error('Error getting address:', error)
+          // Si falla todo, usar coordenadas formateadas como fallback
+          setFormData(prev => ({
+            ...prev,
+            location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+          }))
+          toast.success('📍 Ubicación obtenida')
+        }
+        
+        setGettingLocation(false)
+      },
+      (error) => {
+        console.error('Error getting location:', error)
+        toast.error('No se pudo obtener tu ubicación. Verifica los permisos del navegador.')
+        setGettingLocation(false)
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    )
+  }
+
   const validateForm = () => {
     const newErrors = {}
     
@@ -134,7 +195,7 @@ const CreateWorkOrder = () => {
       
       const workOrderData = {
         title: formData.title.trim(),
-        description: formData.description.trim(),
+        description: formData.description.trim() || '',
         priority: formData.priority,
         assignedTo: formData.assignedTo || null,
         projectId: formData.projectId || null,
@@ -296,16 +357,46 @@ const CreateWorkOrder = () => {
                 />
               </Grid>
 
-              {/* Ubicación */}
-              <Grid item xs={12} md={6}>
+              {/* Ubicación / Dirección */}
+              <Grid item xs={12} md={8}>
                 <TextField
                   fullWidth
-                  label="Ubicación"
+                  label="Ubicación / Dirección"
                   value={formData.location}
                   onChange={handleChange('location')}
                   disabled={loading}
+                  placeholder="Ej: Av. Corrientes 1234, Buenos Aires"
+                  helperText="Ingresa una dirección manualmente o usa el botón para obtener tu ubicación actual"
                 />
               </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={handleGetCurrentLocation}
+                  disabled={loading || gettingLocation}
+                  sx={{ height: '56px' }}
+                  startIcon={!gettingLocation && '📍'}
+                >
+                  {gettingLocation ? (
+                    <>
+                      <CircularProgress size={20} sx={{ mr: 1 }} />
+                      Obteniendo...
+                    </>
+                  ) : (
+                    'Mi Ubicación'
+                  )}
+                </Button>
+              </Grid>
+
+              {formData.location && (
+                <Grid item xs={12}>
+                  <Alert severity="info" icon="📍">
+                    <strong>Ubicación:</strong> {formData.location}
+                  </Alert>
+                </Grid>
+              )}
 
               {/* ID de Equipo */}
               <Grid item xs={12} md={6}>

@@ -10,7 +10,11 @@ import {
   Alert,
   Container,
   Link,
-  Grid
+  Grid,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material'
 import api from '../../services/authService'
 import logo from '../../assets/logo.png'
@@ -23,7 +27,8 @@ const Register = () => {
     confirmPassword: '',
     username: '',
     firstName: '',
-    lastName: ''
+    lastName: '',
+    role: 'employee'
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -130,7 +135,8 @@ const Register = () => {
         password: formData.password,
         username: formData.username,
         firstName: formData.firstName,
-        lastName: formData.lastName
+        lastName: formData.lastName,
+        role: formData.role
       }
       
       const response = await api.post('/api/auth/register', payload)
@@ -264,6 +270,24 @@ const Register = () => {
               error={!!fieldErrors.email}
               helperText={fieldErrors.email}
             />
+
+            <FormControl fullWidth margin="normal" required>
+              <InputLabel id="role-label">Rol</InputLabel>
+              <Select
+                labelId="role-label"
+                id="role"
+                name="role"
+                value={formData.role}
+                onChange={handleChange}
+                disabled={loading}
+                label="Rol"
+              >
+                <MenuItem value="employee">Empleado / Técnico</MenuItem>
+                <MenuItem value="team_leader">Jefe de Equipo</MenuItem>
+                <MenuItem value="supervisor">Supervisor / Gerente</MenuItem>
+                <MenuItem value="admin">Administrador</MenuItem>
+              </Select>
+            </FormControl>
             
             <TextField
               margin="normal"

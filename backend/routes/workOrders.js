@@ -139,11 +139,8 @@ router.post('/', authenticateToken, [
     .isLength({ min: 3, max: 200 })
     .withMessage('El título debe tener entre 3 y 200 caracteres'),
   body('description')
-    .trim()
-    .notEmpty()
-    .withMessage('La descripción es obligatoria')
-    .isLength({ min: 10 })
-    .withMessage('La descripción debe tener al menos 10 caracteres'),
+    .optional({ checkFalsy: true })
+    .trim(),
   body('priority')
     .notEmpty()
     .withMessage('La prioridad es obligatoria')
@@ -152,6 +149,8 @@ router.post('/', authenticateToken, [
   body('assignedTo').optional({ nullable: true, checkFalsy: true }).isInt().withMessage('ID de usuario inválido'),
   body('projectId').optional({ nullable: true, checkFalsy: true }).isInt().withMessage('ID de proyecto inválido'),
   body('estimatedHours').optional({ nullable: true, checkFalsy: true }).isFloat({ min: 0 }).withMessage('Las horas estimadas deben ser positivas'),
+  body('latitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -90, max: 90 }).withMessage('Latitud inválida'),
+  body('longitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('Longitud inválida'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -175,7 +174,9 @@ router.post('/', authenticateToken, [
       estimatedHours,
       dueDate,
       location,
-      equipmentId
+      equipmentId,
+      latitude,
+      longitude
     } = req.body;
 
     // Validar que el usuario asignado existe y está en el equipo correcto
@@ -200,7 +201,7 @@ router.post('/', authenticateToken, [
       .from('work_orders')
       .insert({
         title: title.trim(),
-        description: description.trim(),
+        description: description ? description.trim() : '',
         priority,
         status: 'pending',
         assigned_to: assignedTo || req.user.userId, // Si no asigna a nadie, se asigna a sí mismo
@@ -211,6 +212,9 @@ router.post('/', authenticateToken, [
         due_date: dueDate || null,
         location: location || null,
         equipment_id: equipmentId || null,
+        latitude: latitude || null,
+        longitude: longitude || null,
+        geolocation_source: (latitude && longitude) ? 'gps' : null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })

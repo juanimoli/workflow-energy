@@ -33,6 +33,8 @@ const authenticateToken = async (req, res, next) => {
       userId: decoded.userId
     };
     
+    logger.info(`Authenticated user: ${users.id} (${users.email}) - Role: ${users.role}`);
+    
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -54,7 +56,10 @@ const authorizeRoles = (...roles) => {
       return res.status(401).json({ message: 'Autenticación requerida' });
     }
 
+    logger.info(`Authorization check - User role: ${req.user.role}, Required roles: ${roles.join(', ')}`);
+
     if (!roles.includes(req.user.role)) {
+      logger.warn(`Access denied - User ${req.user.id} (${req.user.email}) with role ${req.user.role} tried to access endpoint requiring: ${roles.join(', ')}`);
       return res.status(403).json({ 
         message: 'Permisos insuficientes',
         required: roles,

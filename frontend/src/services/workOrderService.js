@@ -72,7 +72,19 @@ export const workOrderService = {
     return response.data
   },
 
-  // Update work order status
+  // Update work order status (HU-06)
+  async updateWorkOrderStatus(id, status, notes) {
+    const response = await api.patch(`/api/work-orders/${id}/status`, { status, notes })
+    return response.data
+  },
+
+  // Get work order history (HU-07)
+  async getWorkOrderHistory(id) {
+    const response = await api.get(`/api/work-orders/${id}/history`)
+    return response.data
+  },
+
+  // Update work order status (legacy)
   async updateStatus(id, status) {
     const response = await api.put(`/api/work-orders/${id}`, { status })
     return response.data

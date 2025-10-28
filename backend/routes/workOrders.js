@@ -375,6 +375,125 @@ router.put('/:id', authenticateToken, authorizeWorkOrderAccess, [
 });
 
 // ============================================
+// UPDATE WORK ORDER STATUS (HU-06)
+// ============================================
+router.patch('/:id/status', authenticateToken, authorizeWorkOrderAccess, [
+  body('status')
+    .notEmpty()
+    .withMessage('El estado es obligatorio')
+    .isIn(['pending', 'in_progress', 'completed', 'cancelled', 'on_hold'])
+    .withMessage('Estado inválido'),
+  body('notes').optional().trim(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Error de validación',
+        errors: errors.array() 
+      });
+    }
+
+    const supabase = getDB();
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    // Get current work order
+    const { data: currentWorkOrder, error: fetchError } = await supabase
+      .from('work_orders')
+      .select('*, assigned_user:users!work_orders_assigned_to_fkey(id, team_id)')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !currentWorkOrder) {
+      return res.status(404).json({ message: 'Orden de trabajo no encontrada' });
+    }
+
+    // HU-06: Validate permissions - only assigned user or their supervisor can change status
+    const canUpdateStatus = 
+      req.user.role === 'admin' ||
+      req.user.role === 'supervisor' ||
+      currentWorkOrder.assigned_to === req.user.userId ||
+      (req.user.role === 'team_leader' && currentWorkOrder.assigned_user?.team_id === req.user.team_id);
+
+    if (!canUpdateStatus) {
+      return res.status(403).json({ 
+        message: 'No tienes permiso para cambiar el estado de esta orden. Solo el usuario asignado o su supervisor pueden hacerlo.' 
+      });
+    }
+
+    // Prepare update data
+    const updates = {
+      status,
+      updated_at: new Date().toISOString()
+    };
+
+    // Set timestamps based on status
+    if (status === 'in_progress' && !currentWorkOrder.started_at) {
+      updates.started_at = new Date().toISOString();
+    }
+    
+    if (status === 'completed' && !currentWorkOrder.completed_at) {
+      updates.completed_at = new Date().toISOString();
+    }
+
+    // Update work order
+    const { data: updatedWorkOrder, error: updateError } = await supabase
+      .from('work_orders')
+      .update(updates)
+      .eq('id', id)
+      .select(`
+        *,
+        assigned_user:users!work_orders_assigned_to_fkey(id, first_name, last_name, email),
+        creator:users!work_orders_created_by_fkey(id, first_name, last_name),
+        team:teams(id, name),
+        project:projects(id, name)
+      `)
+      .single();
+
+    if (updateError) {
+      logger.error('Error updating work order status:', updateError);
+      return res.status(500).json({ message: 'Error al actualizar el estado de la orden' });
+    }
+
+    // HU-06: Register change in history
+    const { error: historyError } = await supabase
+      .from('work_order_history')
+      .insert({
+        work_order_id: parseInt(id),
+        user_id: req.user.userId,
+        action: 'status_changed',
+        field_name: 'status',
+        old_value: currentWorkOrder.status,
+        new_value: status,
+        change_reason: notes || null,
+        timestamp: new Date().toISOString()
+      });
+
+    if (historyError) {
+      logger.error('Error creating history record:', historyError);
+      // Don't fail the request if history fails
+    }
+
+    logger.info('Work order status updated:', {
+      id,
+      old_status: currentWorkOrder.status,
+      new_status: status,
+      updated_by: req.user.userId
+    });
+
+    res.json({
+      message: 'Estado actualizado exitosamente',
+      workOrder: updatedWorkOrder
+    });
+
+  } catch (error) {
+    logger.error('Update work order status error:', error);
+    res.status(500).json({ message: 'Error al actualizar el estado de la orden' });
+  }
+});
+
+// ============================================
 // DELETE WORK ORDER
 // ============================================
 router.delete('/:id', authenticateToken, authorizeRoles('admin', 'supervisor'), async (req, res) => {
@@ -404,6 +523,39 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'supervisor'), 
   } catch (error) {
     logger.error('Delete work order error:', error);
     res.status(500).json({ message: 'Error al eliminar la orden de trabajo' });
+  }
+});
+
+// ============================================
+// GET WORK ORDER HISTORY (HU-07)
+// ============================================
+router.get('/:id/history', authenticateToken, authorizeWorkOrderAccess, async (req, res) => {
+  try {
+    const supabase = getDB();
+    const { id } = req.params;
+
+    // Get history with user information
+    const { data: history, error } = await supabase
+      .from('work_order_history')
+      .select(`
+        *,
+        user:users(id, first_name, last_name, email, role)
+      `)
+      .eq('work_order_id', id)
+      .order('timestamp', { ascending: false });
+
+    if (error) {
+      logger.error('Error getting work order history:', error);
+      return res.status(500).json({ message: 'Error al obtener el historial' });
+    }
+
+    res.json({
+      history: history || []
+    });
+
+  } catch (error) {
+    logger.error('Get work order history error:', error);
+    res.status(500).json({ message: 'Error al obtener el historial' });
   }
 });
 

@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const { getDB } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
+const auditService = require('../utils/auditService');
 
 const router = express.Router();
 
@@ -290,6 +291,17 @@ router.post('/login', [
 
     // MENSAJE GENÉRICO para prevenir enumeración de usuarios
     if (!users || users.length === 0) {
+      // Log failed attempt - user not found
+      await auditService.logLoginAttempt({
+        userId: null,
+        username: email,
+        email: email,
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || 'Unknown',
+        success: false,
+        failureReason: 'User not found'
+      });
+
       return res.status(401).json({ 
         message: 'Credenciales inválidas'
       });
@@ -301,16 +313,16 @@ router.post('/login', [
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
 
     if (!isValidPassword) {
-      // Log de intento fallido
-      await supabase
-        .from('access_logs')
-        .insert({
-          user_id: user.id,
-          action: 'failed_login',
-          ip_address: req.ip,
-          user_agent: req.get('User-Agent'),
-          status_code: 401
-        });
+      // Log failed attempt - invalid password
+      await auditService.logLoginAttempt({
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || 'Unknown',
+        success: false,
+        failureReason: 'Invalid password'
+      });
 
       // MENSAJE GENÉRICO (no revelar que el usuario existe)
       return res.status(401).json({ 
@@ -355,16 +367,16 @@ router.post('/login', [
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id);
 
-    // Log successful access
-    await supabase
-      .from('access_logs')
-      .insert({
-        user_id: user.id,
-        action: 'login',
-        ip_address: req.ip,
-        user_agent: req.get('User-Agent'),
-        status_code: 200
-      });
+    // Log successful access with audit service
+    await auditService.logLoginAttempt({
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent') || 'Unknown',
+      success: true,
+      sessionToken: accessToken
+    });
 
     const userResponse = {
       id: user.id,

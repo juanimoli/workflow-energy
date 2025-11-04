@@ -17,6 +17,7 @@ const reportsRoutes = require('./routes/reports');
 const syncRoutes = require('./routes/sync');
 const geocodeRoutes = require('./routes/geocode');
 const teamsRoutes = require('./routes/teams');
+const accessLogsRoutes = require('./routes/accessLogs');
 
 const logger = require('./utils/logger');
 const { connectDB, getDB } = require('./config/database');
@@ -115,6 +116,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/geocode', geocodeRoutes);
 app.use('/api/teams', teamsRoutes);
+app.use('/api/access-logs', accessLogsRoutes);
 
 // Socket.io initialization
 initializeSocket(io);

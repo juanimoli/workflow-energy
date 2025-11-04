@@ -13,6 +13,8 @@ import {
   CircularProgress,
   Alert,
   Chip,
+  Button,
+  Stack,
 } from '@mui/material'
 import {
   Assignment as AssignmentIcon,
@@ -21,6 +23,8 @@ import {
   PlayArrow as InProgressIcon,
   TrendingUp as TrendingUpIcon,
   AccessTime as TimeIcon,
+  PictureAsPdf as PdfIcon,
+  TableChart as ExcelIcon,
 } from '@mui/icons-material'
 import { useAuth } from '../../context/AuthContext'
 import axios from 'axios'
@@ -60,6 +64,7 @@ const Dashboard = () => {
   const [error, setError] = useState(null)
   const [timeframe, setTimeframe] = useState('30')
   const [metrics, setMetrics] = useState(null)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -83,6 +88,82 @@ const Dashboard = () => {
       toast.error('Error al cargar las métricas')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleExport = async (format) => {
+    try {
+      setExporting(true)
+      const token = localStorage.getItem('accessToken')
+
+      // Prepare data for export
+      const exportData = {
+        kpis: {
+          totalOrders: stats.total,
+          pendingOrders: stats.byStatus.pending,
+          inProgressOrders: stats.byStatus.in_progress,
+          completedOrders: stats.byStatus.completed,
+          cancelledOrders: stats.byStatus.cancelled,
+          overdueOrders: stats.overdueOrders,
+          avgResolutionTime: parseFloat(stats.avgCompletionHours) || 0,
+          highPriorityOrders: stats.byPriority.critical + stats.byPriority.high,
+        },
+        statusDistribution: [
+          { status: 'Pendientes', count: stats.byStatus.pending },
+          { status: 'En Progreso', count: stats.byStatus.in_progress },
+          { status: 'Completadas', count: stats.byStatus.completed },
+          { status: 'En Espera', count: stats.byStatus.on_hold },
+          { status: 'Canceladas', count: stats.byStatus.cancelled },
+        ],
+        priorityDistribution: [
+          { priority: 'Baja', count: stats.byPriority.low },
+          { priority: 'Media', count: stats.byPriority.medium },
+          { priority: 'Alta', count: stats.byPriority.high },
+          { priority: 'Crítica', count: stats.byPriority.critical },
+        ],
+        trendData: trends.slice(0, 30).reverse().map(t => ({
+          date: new Date(t.date).toLocaleDateString('es-ES'),
+          created: t.created,
+          completed: t.completed,
+          pending: t.in_progress,
+        })),
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/reports/export`,
+        {
+          format,
+          metricsData: exportData,
+          filters: {
+            period: timeframe,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          responseType: 'blob',
+        }
+      )
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute(
+        'download',
+        `metricas_${new Date().toISOString().split('T')[0]}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
+      )
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+
+      toast.success(`Reporte ${format.toUpperCase()} generado exitosamente`)
+    } catch (error) {
+      console.error('Error exporting report:', error)
+      toast.error('Error al generar el reporte')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -263,19 +344,41 @@ const Dashboard = () => {
           </Typography>
         </Box>
         
-        <FormControl sx={{ minWidth: 200 }}>
-          <InputLabel>Período</InputLabel>
-          <Select
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value)}
-            label="Período"
+        <Stack direction="row" spacing={2} alignItems="center">
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel>Período</InputLabel>
+            <Select
+              value={timeframe}
+              onChange={(e) => setTimeframe(e.target.value)}
+              label="Período"
+            >
+              <MenuItem value="7">Últimos 7 días</MenuItem>
+              <MenuItem value="30">Últimos 30 días</MenuItem>
+              <MenuItem value="90">Últimos 90 días</MenuItem>
+              <MenuItem value="180">Últimos 6 meses</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="outlined"
+            startIcon={<PdfIcon />}
+            onClick={() => handleExport('pdf')}
+            disabled={exporting}
+            color="error"
           >
-            <MenuItem value="7">Últimos 7 días</MenuItem>
-            <MenuItem value="30">Últimos 30 días</MenuItem>
-            <MenuItem value="90">Últimos 90 días</MenuItem>
-            <MenuItem value="180">Últimos 6 meses</MenuItem>
-          </Select>
-        </FormControl>
+            {exporting ? 'Exportando...' : 'Exportar PDF'}
+          </Button>
+
+          <Button
+            variant="outlined"
+            startIcon={<ExcelIcon />}
+            onClick={() => handleExport('excel')}
+            disabled={exporting}
+            color="success"
+          >
+            {exporting ? 'Exportando...' : 'Exportar Excel'}
+          </Button>
+        </Stack>
       </Box>
 
       {/* KPI Cards */}

@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '')
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -80,6 +80,11 @@ export const authService = {
 
   async changePassword(passwordData) {
     const response = await api.post('/api/auth/change-password', passwordData)
+    return response.data
+  },
+
+  async forgotPassword(email) {
+    const response = await api.post('/api/auth/forgot-password', { email })
     return response.data
   },
 

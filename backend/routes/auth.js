@@ -37,6 +37,10 @@ router.post('/register', [
     .withMessage('El apellido es obligatorio')
     .isLength({ min: 2 })
     .withMessage('El apellido debe tener al menos 2 caracteres'),
+  body('role')
+    .optional()
+    .isIn(['employee', 'team_leader', 'supervisor', 'admin'])
+    .withMessage('Rol inválido'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -91,8 +95,10 @@ router.post('/register', [
     // Hash password con salt rounds seguro (12)
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Validar rol (solo permitir employee por defecto para registro público)
-    const userRole = role && ['employee'].includes(role) ? role : 'employee';
+    // Validar rol - permitir todos los roles válidos
+    // En producción, podrías querer limitar esto o requerir aprobación de admin
+    const validRoles = ['employee', 'team_leader', 'supervisor', 'admin'];
+    const userRole = role && validRoles.includes(role) ? role : 'employee';
 
     // Insert new user
     const { data: newUser, error: insertError } = await supabase

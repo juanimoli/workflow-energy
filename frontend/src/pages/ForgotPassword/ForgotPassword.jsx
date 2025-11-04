@@ -10,7 +10,8 @@ import {
   Container,
   Link
 } from '@mui/material'
-import api from '../../services/authService'
+import toast from 'react-hot-toast'
+import { authService } from '../../services/authService'
 import logo from '../../assets/logo.png'
 
 const ForgotPassword = () => {
@@ -32,8 +33,8 @@ const ForgotPassword = () => {
     setMessage('')
 
     try {
-      const response = await api.post('/auth/forgot-password', { email })
-      const successMessage = response.data.message || 'Se ha enviado un enlace a tu correo'
+      const response = await authService.forgotPassword(email)
+      const successMessage = response.message || 'Se ha enviado un enlace a tu correo'
       setMessage(successMessage)
       toast.success(successMessage, {
         duration: 5000,

@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '')
 
 // Create axios instance with auth interceptor
 const api = axios.create({
@@ -72,7 +72,19 @@ export const workOrderService = {
     return response.data
   },
 
-  // Update work order status
+  // Update work order status (HU-06)
+  async updateWorkOrderStatus(id, status, notes) {
+    const response = await api.patch(`/api/work-orders/${id}/status`, { status, notes })
+    return response.data
+  },
+
+  // Get work order history (HU-07)
+  async getWorkOrderHistory(id) {
+    const response = await api.get(`/api/work-orders/${id}/history`)
+    return response.data
+  },
+
+  // Update work order status (legacy)
   async updateStatus(id, status) {
     const response = await api.put(`/api/work-orders/${id}`, { status })
     return response.data

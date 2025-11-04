@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '')
 
 // Create axios instance with auth interceptor
 const api = axios.create({
@@ -21,7 +21,13 @@ api.interceptors.request.use(
   }
 )
 
-export const userService = {
+const userService = {
+  // Get all users
+  async getAllUsers(params = {}) {
+    const response = await api.get('/api/users', { params })
+    return response.data
+  },
+
   // Get users (filtered by role permissions)
   async getUsers(params = {}) {
     const response = await api.get('/api/users', { params })
@@ -40,3 +46,6 @@ export const userService = {
     return response.data
   },
 }
+
+export default userService
+export { userService }

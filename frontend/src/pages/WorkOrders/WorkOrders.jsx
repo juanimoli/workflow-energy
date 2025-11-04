@@ -359,6 +359,7 @@ const WorkOrders = () => {
           <Table stickyHeader>
             <TableHead>
               <TableRow>
+                <TableCell>ID</TableCell>
                 <TableCell>Título</TableCell>
                 <TableCell>Estado</TableCell>
                 <TableCell>Prioridad</TableCell>
@@ -371,6 +372,14 @@ const WorkOrders = () => {
             <TableBody>
               {workOrders.map((workOrder) => (
                 <TableRow key={workOrder.id} hover>
+                  <TableCell>
+                    <Chip
+                      label={`#${workOrder.id}`}
+                      size="small"
+                      variant="outlined"
+                      color="default"
+                    />
+                  </TableCell>
                   <TableCell>
                     <Typography variant="subtitle2">
                       {workOrder.title}

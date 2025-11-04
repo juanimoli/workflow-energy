@@ -11,6 +11,8 @@ import Dashboard from './pages/Dashboard/Dashboard'
 import WorkOrders from './pages/WorkOrders/WorkOrders'
 import WorkOrderDetail from './pages/WorkOrders/WorkOrderDetail'
 import CreateWorkOrder from './pages/WorkOrders/CreateWorkOrder'
+import Teams from './pages/Teams/Teams'
+import TeamDetail from './pages/Teams/TeamDetail'
 import Reports from './pages/Reports/Reports'
 import Settings from './pages/Settings/Settings'
 import Profile from './pages/Profile/Profile'
@@ -44,9 +46,11 @@ function App() {
       <Layout>
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/work-orders" element={<WorkOrders />} />
-          <Route path="/work-orders/create" element={<CreateWorkOrder />} />
-          <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
+            <Route path="/work-orders" element={<WorkOrders />} />
+            <Route path="/work-orders/create" element={<CreateWorkOrder />} />
+            <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
+            <Route path="/teams" element={<Teams />} />
+            <Route path="/teams/:id" element={<TeamDetail />} />
           <Route path="/work-orders/:id/edit" element={<CreateWorkOrder />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />

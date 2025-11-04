@@ -65,7 +65,14 @@ const limiter = rateLimit({
   max: 100, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
-app.use('/api/', limiter);
+// Allow disabling rate limiting during local perf tests by setting
+// ENABLE_RATE_LIMIT=false in the environment. Default is enabled.
+const enableRateLimit = process.env.ENABLE_RATE_LIMIT !== 'false';
+if (enableRateLimit) {
+  app.use('/api/', limiter);
+} else {
+  logger.info('Rate limiting disabled (ENABLE_RATE_LIMIT=false)');
+}
 
 // Middleware
 app.use(compression());

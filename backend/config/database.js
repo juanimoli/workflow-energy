@@ -70,6 +70,11 @@ const connectDB = async () => {
 };
 
 const getDB = () => {
+  // If tests injected a global test DB, prefer that to avoid module-instance issues
+  if (!supabase && global && global.__TEST_DB__) {
+    supabase = global.__TEST_DB__
+  }
+
   if (!supabase) {
     throw new Error('Supabase not initialized. Call connectDB first.');
   }
@@ -83,8 +88,16 @@ const closeDB = async () => {
   }
 };
 
+// Test helper to inject a fake supabase client in tests
+const setTestDB = (db) => {
+  supabase = db;
+  // store a global reference so ESM/CJS interop can't cause the test DB to be lost
+  if (global) global.__TEST_DB__ = db;
+};
+
 module.exports = {
   connectDB,
   getDB,
-  closeDB
+  closeDB,
+  setTestDB
 };

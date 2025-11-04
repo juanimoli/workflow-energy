@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { getDB } = require('../config/database');
+const dbModule = require('../config/database');
 const logger = require('../utils/logger');
 
 // JWT verification middleware
@@ -15,7 +15,7 @@ const authenticateToken = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
     // Verify user still exists and is active
-    const supabase = getDB();
+  const supabase = (global && global.__TEST_DB__) ? global.__TEST_DB__ : dbModule.getDB();
     const { data: users, error } = await supabase
       .from('users')
       .select('id, username, email, role, is_active, team_id, plant_id')
@@ -89,8 +89,8 @@ const authorizeAdmin = (req, res, next) => {
 // Team-based authorization (for team leaders)
 const authorizeTeamAccess = async (req, res, next) => {
   try {
-    const supabase = getDB();
-    const userId = req.params.userId || req.body.assignedTo || req.query.userId;
+  const supabase = (global && global.__TEST_DB__) ? global.__TEST_DB__ : dbModule.getDB();
+    const userId = req.params.userId || (req.body && req.body.assignedTo) || req.query.userId;
 
     // Admin can access everything
     if (req.user.role === 'admin') {
@@ -134,7 +134,7 @@ const authorizeTeamAccess = async (req, res, next) => {
 // Work order access control
 const authorizeWorkOrderAccess = async (req, res, next) => {
   try {
-    const supabase = getDB();
+  const supabase = (global && global.__TEST_DB__) ? global.__TEST_DB__ : dbModule.getDB();
     const workOrderId = req.params.id || req.params.workOrderId;
 
     if (!workOrderId) {
@@ -202,7 +202,7 @@ const authorizeWorkOrderAccess = async (req, res, next) => {
 const logAccess = async (req, res, next) => {
   try {
     if (req.user && req.user.userId) {
-      const supabase = getDB();
+    const supabase = (global && global.__TEST_DB__) ? global.__TEST_DB__ : dbModule.getDB();
       
       await supabase
         .from('access_logs')

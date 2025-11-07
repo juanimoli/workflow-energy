@@ -16,6 +16,7 @@ import TeamDetail from './pages/Teams/TeamDetail'
 import Reports from './pages/Reports/Reports'
 import Settings from './pages/Settings/Settings'
 import Profile from './pages/Profile/Profile'
+import AccessLogs from './pages/AccessLogs/AccessLogs'
 import LoadingSpinner from './components/LoadingSpinner/LoadingSpinner'
 
 function App() {
@@ -55,6 +56,7 @@ function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/access-logs" element={user?.role === 'admin' ? <AccessLogs /> : <Navigate to="/dashboard" replace />} />
           <Route path="/coming-soon" element={<ComingSoon />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

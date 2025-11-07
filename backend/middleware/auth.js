@@ -222,11 +222,38 @@ const logAccess = async (req, res, next) => {
   next();
 };
 
+// Simplified role requirement middleware
+const requireRole = (roles) => {
+  return (req, res, next) => {
+    logger.info(`requireRole middleware - req.user exists: ${!!req.user}, user: ${JSON.stringify(req.user || 'null')}`);
+    
+    if (!req.user) {
+      return res.status(401).json({ message: 'Autenticación requerida' });
+    }
+
+    const allowedRoles = Array.isArray(roles) ? roles : [roles];
+    
+    logger.info(`Authorization check - User role: ${req.user.role}, Required roles: ${allowedRoles.join(', ')}`);
+
+    if (!allowedRoles.includes(req.user.role)) {
+      logger.warn(`Access denied - User ${req.user.id} with role ${req.user.role} tried to access endpoint requiring: ${allowedRoles.join(', ')}`);
+      return res.status(403).json({ 
+        message: 'Permisos insuficientes para acceder a este recurso',
+        userRole: req.user.role,
+        requiredRoles: allowedRoles
+      });
+    }
+
+    next();
+  };
+};
+
 module.exports = {
   authenticateToken,
   authorizeRoles,
   authorizeAdmin,
   authorizeTeamAccess,
   authorizeWorkOrderAccess,
-  logAccess
+  logAccess,
+  requireRole
 };

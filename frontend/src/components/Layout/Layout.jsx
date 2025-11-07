@@ -27,7 +27,8 @@ import {
   Assessment as ReportsIcon,
   Settings as SettingsIcon,
   AccountCircle as ProfileIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  Security as SecurityIcon
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -67,6 +68,10 @@ const Layout = ({ children }) => {
     { text: 'Equipos', icon: <TeamsIcon />, path: '/teams' },
     { text: 'Reportes', icon: <ReportsIcon />, path: '/reports' },
   ]
+
+  if (user?.role === 'admin') {
+    menuItems.push({ text: 'Auditoría', icon: <SecurityIcon />, path: '/access-logs' })
+  }
 
   if (user?.role === 'admin' || user?.role === 'supervisor') {
     menuItems.push({ text: 'Configuración', icon: <SettingsIcon />, path: '/settings' })

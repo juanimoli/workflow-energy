@@ -4,6 +4,7 @@ const ExcelJS = require('exceljs');
 const { getDB } = require('../config/database');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const logger = require('../utils/logger');
+const { generatePDFReport, generateExcelReport } = require('../utils/exportService');
 
 const router = express.Router();
 
@@ -80,9 +81,9 @@ router.get('/work-orders', authenticateToken, async (req, res) => {
     const workOrders = result.rows;
 
     if (format === 'excel') {
-      return generateExcelReport(res, workOrders, 'work-orders');
+      return generateWorkOrdersExcelReport(res, workOrders, 'work-orders');
     } else {
-      return generatePDFReport(res, workOrders, 'Reporte de Órdenes de Trabajo');
+      return generateWorkOrdersPDFReport(res, workOrders, 'Reporte de Órdenes de Trabajo');
     }
 
   } catch (error) {
@@ -146,9 +147,9 @@ router.get('/team-performance', authenticateToken, authorizeRoles('team_leader',
     const performanceData = result.rows;
 
     if (format === 'excel') {
-      return generateExcelReport(res, performanceData, 'team-performance');
+      return generateWorkOrdersExcelReport(res, performanceData, 'team-performance');
     } else {
-      return generatePDFReport(res, performanceData, 'Reporte de Desempeño de Equipos');
+      return generateWorkOrdersPDFReport(res, performanceData, 'Reporte de Desempeño de Equipos');
     }
 
   } catch (error) {
@@ -217,7 +218,7 @@ router.get('/metrics-summary', authenticateToken, authorizeRoles('supervisor', '
 });
 
 // Helper function to generate PDF reports
-const generatePDFReport = (res, data, title) => {
+const generateWorkOrdersPDFReport = (res, data, title) => {
   const doc = new PDFDocument({ margin: 50 });
   
   res.setHeader('Content-Type', 'application/pdf');
@@ -265,7 +266,7 @@ const generatePDFReport = (res, data, title) => {
 };
 
 // Helper function to generate Excel reports
-const generateExcelReport = async (res, data, reportType) => {
+const generateWorkOrdersExcelReport = async (res, data, reportType) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Reporte');
 
@@ -388,5 +389,63 @@ const generateMetricsExcelReport = async (res, data) => {
   await workbook.xlsx.write(res);
   res.end();
 };
+
+// Export dashboard metrics (HU-09)
+router.post('/export', authenticateToken, async (req, res) => {
+  try {
+    const { format = 'pdf', metricsData, filters = {} } = req.body;
+
+    if (!metricsData) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Se requieren datos de métricas para exportar' 
+      });
+    }
+
+    logger.info(`Exporting metrics report in ${format} format for user ${req.user.userId}`);
+
+    if (format === 'excel' || format === 'xlsx') {
+      // Generate Excel report
+      const workbook = await generateExcelReport(metricsData, filters);
+      
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="metricas_${Date.now()}.xlsx"`
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+    } else if (format === 'pdf') {
+      // Generate PDF report
+      const pdfDoc = generatePDFReport(metricsData, filters);
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="metricas_${Date.now()}.pdf"`
+      );
+
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Formato no soportado. Use "pdf" o "excel"' 
+      });
+    }
+
+  } catch (error) {
+    logger.error('Export metrics report error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al generar el reporte de exportación',
+      error: error.message 
+    });
+  }
+});
 
 module.exports = router;

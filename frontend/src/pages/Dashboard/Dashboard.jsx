@@ -282,20 +282,18 @@ const Dashboard = () => {
       <Grid container spacing={3} mb={4}>
         {statCards.map((card, index) => (
           <Grid item xs={12} sm={6} md={4} lg={2} key={index}>
-            <Card>
-              <CardContent>
-                <Box display="flex" alignItems="center" justifyContent="space-between">
-                  <Box>
-                    <Typography color="text.secondary" variant="body2" gutterBottom>
-                      {card.title}
-                    </Typography>
-                    <Typography variant="h4" component="div">
-                      {card.value}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ color: card.color }}>
-                    {card.icon}
-                  </Box>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography color="text.secondary" variant="body2" gutterBottom>
+                    {card.title}
+                  </Typography>
+                  <Typography variant="h4" component="div">
+                    {card.value}
+                  </Typography>
+                </Box>
+                <Box sx={{ color: card.color }}>
+                  {card.icon}
                 </Box>
               </CardContent>
             </Card>

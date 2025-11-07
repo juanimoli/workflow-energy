@@ -253,8 +253,8 @@ const WorkOrders = () => {
       {stats && (
         <Grid container spacing={3} mb={3}>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   Total
                 </Typography>
@@ -265,37 +265,37 @@ const WorkOrders = () => {
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   Pendientes
                 </Typography>
                 <Typography variant="h4" color="warning.main">
-                  {stats.pending}
+                  {stats.byStatus?.pending || 0}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   En Progreso
                 </Typography>
                 <Typography variant="h4" color="info.main">
-                  {stats.in_progress}
+                  {stats.byStatus?.in_progress || 0}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   Completadas
                 </Typography>
                 <Typography variant="h4" color="success.main">
-                  {stats.completed}
+                  {stats.byStatus?.completed || 0}
                 </Typography>
               </CardContent>
             </Card>

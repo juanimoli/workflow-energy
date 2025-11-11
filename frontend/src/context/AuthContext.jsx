@@ -153,6 +153,10 @@ export const AuthProvider = ({ children }) => {
     updateUser,
     hasPermission,
     canAccessWorkOrder,
+    // Permite establecer el usuario autenticado directamente (por ejemplo tras reset de contraseña)
+    setAuthenticatedUser: (userData) => {
+      dispatch({ type: 'AUTH_SUCCESS', payload: userData })
+    }
   }
 
   return (

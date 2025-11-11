@@ -66,16 +66,13 @@ const Layout = ({ children }) => {
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Órdenes', icon: <WorkIcon />, path: '/work-orders' },
     { text: 'Equipos', icon: <TeamsIcon />, path: '/teams' },
-    { text: 'Reportes', icon: <ReportsIcon />, path: '/reports' },
   ]
 
   if (user?.role === 'admin') {
     menuItems.push({ text: 'Auditoría', icon: <SecurityIcon />, path: '/access-logs' })
   }
 
-  if (user?.role === 'admin' || user?.role === 'supervisor') {
-    menuItems.push({ text: 'Configuración', icon: <SettingsIcon />, path: '/settings' })
-  }
+  // Removed Configuración until settings are implemented
 
   const drawer = (
     <div>

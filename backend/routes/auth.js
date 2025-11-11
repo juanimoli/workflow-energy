@@ -6,6 +6,8 @@ const { getDB } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const auditService = require('../utils/auditService');
+const emailService = require('../utils/emailService');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -195,13 +197,23 @@ router.post('/forgot-password', [
     
     if (!userError && users && users.length > 0) {
       const user = users[0];
-      
-      // Generar token de reset seguro
-      const resetToken = require('crypto').randomBytes(32).toString('hex');
+
+      try {
+        // Eliminar cualquier token anterior (usado o no) para asegurar UN solo token activo
+        await supabase
+          .from('password_reset_tokens')
+          .delete()
+          .eq('user_id', user.id);
+      } catch (cleanupErr) {
+        logger.warn('No se pudieron limpiar tokens previos (continuando):', cleanupErr);
+      }
+
+      // Generar token seguro
+      const resetToken = crypto.randomBytes(32).toString('hex');
       const resetTokenHash = await bcrypt.hash(resetToken, 10);
       const tokenExpiry = new Date(Date.now() + 3600000); // 1 hora
 
-      // Guardar token en la base de datos
+      // Guardar nuevo token
       const { error: tokenError } = await supabase
         .from('password_reset_tokens')
         .insert({
@@ -212,16 +224,20 @@ router.post('/forgot-password', [
         });
 
       if (!tokenError) {
-        // En producción, aquí se enviaría el email
-        // Por ahora solo lo registramos
         logger.info('Password reset token generated:', {
           user_id: user.id,
           email: user.email,
           token_expiry: tokenExpiry
         });
 
-        // TODO: Implementar envío de email real
-        // await emailService.sendPasswordReset(user.email, resetToken);
+        try {
+          await emailService.sendPasswordReset(user.email, resetToken, user.first_name);
+          logger.info('Password reset email sent successfully to:', user.email);
+        } catch (emailError) {
+          logger.error('Failed to send password reset email:', emailError);
+        }
+      } else {
+        logger.error('Error inserting password reset token:', tokenError);
       }
     }
 
@@ -232,6 +248,203 @@ router.post('/forgot-password', [
 
   } catch (error) {
     logger.error('Forgot password error:', error);
+    res.status(500).json({ 
+      message: 'Error al procesar la solicitud'
+    });
+  }
+});
+
+// ============================================
+// RESET PASSWORD ENDPOINT - FUNCIONAL
+// ============================================
+router.post('/reset-password', [
+  body('token')
+    .notEmpty()
+    .withMessage('Token de recuperación requerido'),
+  body('newPassword')
+    .notEmpty()
+    .withMessage('Nueva contraseña requerida')
+    .isLength({ min: 8 })
+    .withMessage('La nueva contraseña debe tener al menos 8 caracteres'),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Datos inválidos',
+        errors: errors.array().map(err => ({
+          field: err.path,
+          message: err.msg
+        }))
+      });
+    }
+
+    const { token, newPassword } = req.body;
+    const supabase = getDB();
+
+    logger.info('Password reset attempt:', {
+      token: token.substring(0, 10) + '...',
+      ip: req.ip,
+      timestamp: new Date().toISOString()
+    });
+
+    // Find valid token
+    const { data: tokens, error: tokenError } = await supabase
+      .from('password_reset_tokens')
+      .select(`
+        *,
+        users!password_reset_tokens_user_id_fkey(id, email, first_name)
+      `)
+      .gt('expires_at', new Date().toISOString())
+      .is('used_at', null);
+
+    if (tokenError) {
+      logger.error('Error finding reset tokens:', tokenError);
+      return res.status(500).json({ 
+        message: 'Error al procesar la solicitud'
+      });
+    }
+
+    // Verify token hash
+    let validToken = null;
+    let user = null;
+
+    for (const tokenRecord of tokens) {
+      const isValid = await bcrypt.compare(token, tokenRecord.token_hash);
+      if (isValid) {
+        validToken = tokenRecord;
+        user = tokenRecord.users;
+        break;
+      }
+    }
+
+    if (!validToken || !user) {
+      return res.status(400).json({ 
+        message: 'Token inválido o expirado'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update user password
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        password_hash: hashedPassword,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.id);
+
+    if (updateError) {
+      logger.error('Error updating password:', updateError);
+      return res.status(500).json({ 
+        message: 'Error al actualizar la contraseña'
+      });
+    }
+
+    // Mark token as used
+    await supabase
+      .from('password_reset_tokens')
+      .update({
+        used_at: new Date().toISOString()
+      })
+      .eq('id', validToken.id);
+
+    // Eliminar otros tokens (defensa en profundidad ante múltiples solicitudes en paralelo)
+    try {
+      await supabase
+        .from('password_reset_tokens')
+        .delete()
+        .eq('user_id', user.id);
+    } catch (purgeErr) {
+      logger.warn('No se pudieron purgar tokens adicionales post-reset:', purgeErr);
+    }
+
+    // Invalidate all user sessions for security
+    await supabase
+      .from('user_sessions')
+      .delete()
+      .eq('user_id', user.id);
+
+    // Fetch full user info for token payload and response
+    const { data: fullUser, error: fullUserError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (fullUserError || !fullUser) {
+      logger.warn('Password updated but failed to fetch full user for auto-login:', fullUserError);
+      return res.json({ message: 'Contraseña actualizada exitosamente' });
+    }
+
+    // Auto-login: generate access and refresh tokens
+    const tokenPayload = {
+      userId: fullUser.id,
+      username: fullUser.username,
+      role: fullUser.role,
+      teamId: fullUser.team_id,
+      plantId: fullUser.plant_id
+    };
+
+    const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN || '1h'
+    });
+
+    const refreshToken = jwt.sign(tokenPayload, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+    });
+
+    // Save new session
+    const { data: sessionData } = await supabase
+      .from('user_sessions')
+      .insert({
+        user_id: fullUser.id,
+        session_token: accessToken,
+        refresh_token: refreshToken,
+        device_info: JSON.stringify({ autoLogin: 'password-reset' }),
+        ip_address: req.ip,
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        is_mobile: false
+      })
+      .select('id');
+
+    logger.info('Password reset successful and auto-login issued:', {
+      user_id: fullUser.id,
+      email: fullUser.email
+    });
+
+    // Build a suggested redirect for clients that use it
+    const isDev = process.env.NODE_ENV !== 'production';
+    const selectedBase = process.env.EMAIL_RESET_BASE_URL
+      || (isDev ? process.env.LOCAL_FRONTEND_URL : null)
+      || process.env.FRONTEND_URL
+      || 'http://localhost:3002';
+    const redirectUrl = `${selectedBase.replace(/\/$/, '')}/dashboard`;
+
+    const userResponse = {
+      id: fullUser.id,
+      username: fullUser.username,
+      email: fullUser.email,
+      firstName: fullUser.first_name,
+      lastName: fullUser.last_name,
+      role: fullUser.role,
+      teamId: fullUser.team_id,
+      plantId: fullUser.plant_id
+    };
+
+    res.json({
+      message: 'Contraseña actualizada exitosamente',
+      user: userResponse,
+      accessToken,
+      refreshToken,
+      sessionId: sessionData?.[0]?.id,
+      redirectUrl
+    });
+
+  } catch (error) {
+    logger.error('Reset password error:', error);
     res.status(500).json({ 
       message: 'Error al procesar la solicitud'
     });
@@ -264,10 +477,10 @@ router.post('/login', [
     const { email, password } = req.body;
     const supabase = getDB();
 
-    // Log sin información sensible
+  // Log sin información sensible
     logger.info('Login attempt:', {
-      email: email,
-      ip: req.ip,
+   email: email,
+   ip: (req.headers['x-forwarded-for'] || req.ip).split(',')[0].trim(),
       timestamp: new Date().toISOString()
     });
 
@@ -296,7 +509,7 @@ router.post('/login', [
         userId: null,
         username: email,
         email: email,
-        ipAddress: req.ip,
+        ipAddress: require('../utils/ipUtils').getClientIp(req),
         userAgent: req.get('User-Agent') || 'Unknown',
         success: false,
         failureReason: 'User not found'
@@ -318,7 +531,7 @@ router.post('/login', [
         userId: user.id,
         username: user.username,
         email: user.email,
-        ipAddress: req.ip,
+        ipAddress: require('../utils/ipUtils').getClientIp(req),
         userAgent: req.get('User-Agent') || 'Unknown',
         success: false,
         failureReason: 'Invalid password'
@@ -355,7 +568,7 @@ router.post('/login', [
         session_token: accessToken,
         refresh_token: refreshToken,
         device_info: JSON.stringify(req.headers['user-agent'] || {}),
-        ip_address: req.ip,
+        ip_address: require('../utils/ipUtils').getClientIp(req),
         expires_at: new Date(Date.now() + 3600000).toISOString(),
         is_mobile: req.headers['x-mobile-app'] === 'true'
       })
@@ -372,7 +585,7 @@ router.post('/login', [
       userId: user.id,
       username: user.username,
       email: user.email,
-      ipAddress: req.ip,
+      ipAddress: require('../utils/ipUtils').getClientIp(req),
       userAgent: req.get('User-Agent') || 'Unknown',
       success: true,
       sessionToken: accessToken
@@ -627,5 +840,6 @@ router.post('/validate-session', authenticateToken, async (req, res) => {
     res.status(401).json({ valid: false, message: 'Error al validar sesión' });
   }
 });
+
 
 module.exports = router;

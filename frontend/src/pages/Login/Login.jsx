@@ -34,15 +34,32 @@ const Login = () => {
 
     try {
       await login({ email, password })
-      toast.success('¡Bienvenido!', {
-        duration: 3000,
-        icon: '👋'
-      })
     } catch (err) {
-      const errorMessage = err.message || 'Error al iniciar sesión'
+      let errorMessage = 'Error al iniciar sesión'
+      
+      // Check for specific error types and provide user-friendly messages
+      if (err.response?.status === 401) {
+        errorMessage = 'Credenciales incorrectas. Verifica tu correo y contraseña.'
+      } else if (err.response?.status === 400) {
+        errorMessage = 'Datos de inicio de sesión inválidos'
+      } else if (err.response?.status === 429) {
+        errorMessage = 'Demasiados intentos. Espera unos minutos antes de volver a intentar.'
+      } else if (err.response?.status >= 500) {
+        errorMessage = 'Error del servidor. Intenta más tarde.'
+      } else if (err.message?.includes('Network Error')) {
+        errorMessage = 'Error de conexión. Verifica tu conexión a internet.'
+      } else if (err.response?.data?.message) {
+        // Use server message if available and user-friendly
+        const serverMessage = err.response.data.message
+        if (!serverMessage.includes('401') && !serverMessage.includes('status')) {
+          errorMessage = serverMessage
+        }
+      }
+      
       setError(errorMessage)
       toast.error(errorMessage, {
-        duration: 5000
+        duration: 5000,
+        icon: '❌'
       })
     } finally {
       setLoading(false)

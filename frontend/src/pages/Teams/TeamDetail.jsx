@@ -69,7 +69,8 @@ const TeamDetail = () => {
     try {
       setLoading(true);
       const data = await teamService.getTeamById(id);
-      setTeam(data.team);
+      // The API returns { team, members } separately. Merge members into team
+      setTeam({ ...data.team, members: data.members || [] });
       setFormData({
         name: data.team.name,
         description: data.team.description || '',

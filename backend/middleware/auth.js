@@ -209,7 +209,7 @@ const logAccess = async (req, res, next) => {
         .insert({
           user_id: req.user.userId,
           action: `${req.method} ${req.path}`,
-          ip_address: req.ip,
+          ip_address: require('../utils/ipUtils').getClientIp(req),
           user_agent: req.get('User-Agent'),
           status_code: res.statusCode
         });

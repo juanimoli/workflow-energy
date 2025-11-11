@@ -26,6 +26,37 @@ function formatDate(date) {
  * @returns {PDFDocument} PDF document stream
  */
 function generatePDFReport(data, filters = {}) {
+    // Normalize incoming data shape. The dashboard sends { kpis, statusDistribution, priorityDistribution, trendData }
+    // but future calls could send { stats, trends } (metrics-summary style). Adapt both so export is always complete.
+    if (!data.kpis && data.stats) {
+        const stats = data.stats;
+        data.kpis = {
+            totalOrders: stats.total || 0,
+            pendingOrders: stats.byStatus?.pending || 0,
+            inProgressOrders: stats.byStatus?.in_progress || 0,
+            completedOrders: stats.byStatus?.completed || 0,
+            cancelledOrders: stats.byStatus?.cancelled || 0,
+            overdueOrders: stats.overdueOrders || 0,
+            avgResolutionTime: stats.avgCompletionHours || 0,
+            highPriorityOrders: (stats.byPriority?.high || 0) + (stats.byPriority?.critical || 0)
+        };
+        // Build distributions if absent
+        if (!data.statusDistribution && stats.byStatus) {
+            data.statusDistribution = Object.entries(stats.byStatus).map(([status, count]) => ({ status, count }));
+        }
+        if (!data.priorityDistribution && stats.byPriority) {
+            data.priorityDistribution = Object.entries(stats.byPriority).map(([priority, count]) => ({ priority, count }));
+        }
+        if (!data.trendData && data.trends) {
+            data.trendData = data.trends.map(t => ({
+                date: t.date,
+                created: t.created,
+                completed: t.completed,
+                pending: t.pending ?? t.in_progress
+            }));
+        }
+    }
+
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
     // Add title
@@ -63,17 +94,34 @@ function generatePDFReport(data, filters = {}) {
         .moveDown(0.5);
 
     const kpis = data.kpis || {};
+    const total = kpis.totalOrders || 0;
+    const completed = kpis.completedOrders || 0;
+    const overdue = kpis.overdueOrders || 0;
+    const active = (kpis.pendingOrders || 0) + (kpis.inProgressOrders || 0);
+    // Derived rates
+    const completionRate = total > 0 ? (completed / total * 100).toFixed(1) : '0.0';
+    const overdueRate = total > 0 ? (overdue / total * 100).toFixed(1) : '0.0';
+    const activeRate = total > 0 ? (active / total * 100).toFixed(1) : '0.0';
     
     doc.fontSize(10)
         .font('Helvetica')
-        .text(`Total de Órdenes: ${kpis.totalOrders || 0}`)
+        .text(`Total de Órdenes: ${total}`)
         .text(`Pendientes: ${kpis.pendingOrders || 0}`)
         .text(`En Progreso: ${kpis.inProgressOrders || 0}`)
-        .text(`Completadas: ${kpis.completedOrders || 0}`)
+        .text(`Completadas: ${completed}`)
         .text(`Canceladas: ${kpis.cancelledOrders || 0}`)
-        .text(`Vencidas: ${kpis.overdueOrders || 0}`)
+        .text(`Vencidas: ${overdue}`)
+        .text(`Órdenes Activas: ${active}`)
         .text(`Tiempo Promedio de Resolución: ${kpis.avgResolutionTime || 0} días`)
-        .text(`Órdenes de Alta Prioridad: ${kpis.highPriorityOrders || 0}`)
+        .text(`Órdenes de Alta + Crítica: ${kpis.highPriorityOrders || 0}`)
+        .moveDown()
+        .font('Helvetica-Bold')
+        .text('Indicadores Derivados', { underline: true })
+        .font('Helvetica')
+        .fontSize(10)
+        .text(`Tasa de Finalización: ${completionRate}%`)
+        .text(`Tasa de Órdenes Activas: ${activeRate}%`)
+        .text(`Tasa de Vencidas: ${overdueRate}%`)
         .moveDown();
 
     // Add status distribution
@@ -241,8 +289,12 @@ async function generateExcelReport(data, filters = {}) {
         ['Completadas', kpis.completedOrders || 0],
         ['Canceladas', kpis.cancelledOrders || 0],
         ['Vencidas', kpis.overdueOrders || 0],
+        ['Órdenes Activas', (kpis.pendingOrders || 0) + (kpis.inProgressOrders || 0)],
         ['Tiempo Promedio de Resolución (días)', kpis.avgResolutionTime || 0],
-        ['Órdenes de Alta Prioridad', kpis.highPriorityOrders || 0]
+        ['Órdenes de Alta Prioridad', kpis.highPriorityOrders || 0],
+        ['Tasa de Finalización (%)', (kpis.totalOrders ? ((kpis.completedOrders || 0) / kpis.totalOrders * 100) : 0)],
+        ['Tasa de Vencidas (%)', (kpis.totalOrders ? ((kpis.overdueOrders || 0) / kpis.totalOrders * 100) : 0)],
+        ['Tasa de Órdenes Activas (%)', (kpis.totalOrders ? (((kpis.pendingOrders || 0) + (kpis.inProgressOrders || 0)) / kpis.totalOrders * 100) : 0)]
     ];
 
     kpiData.forEach((row, index) => {
@@ -272,7 +324,7 @@ async function generateExcelReport(data, filters = {}) {
         statusSheet.columns = [
             { header: 'Estado', key: 'status', width: 20 },
             { header: 'Cantidad', key: 'count', width: 15 },
-            { header: 'Porcentaje', key: 'percentage', width: 15 }
+            { header: 'Porcentaje', key: 'percentage', width: 15, style: { numFmt: '0.0%' } }
         ];
 
         // Style header row
@@ -286,13 +338,13 @@ async function generateExcelReport(data, filters = {}) {
         // Add data
         data.statusDistribution.forEach((item) => {
             const percentage = kpis.totalOrders > 0 
-                ? ((item.count / kpis.totalOrders) * 100).toFixed(1) 
+                ? (item.count / kpis.totalOrders)
                 : 0;
 
             statusSheet.addRow({
                 status: item.status || 'N/A',
                 count: item.count,
-                percentage: `${percentage}%`
+                percentage
             });
         });
     }
@@ -340,7 +392,7 @@ async function generateExcelReport(data, filters = {}) {
         prioritySheet.columns = [
             { header: 'Prioridad', key: 'priority', width: 20 },
             { header: 'Cantidad', key: 'count', width: 15 },
-            { header: 'Porcentaje', key: 'percentage', width: 15 }
+            { header: 'Porcentaje', key: 'percentage', width: 15, style: { numFmt: '0.0%' } }
         ];
 
         // Style header row
@@ -354,13 +406,13 @@ async function generateExcelReport(data, filters = {}) {
         // Add data
         data.priorityDistribution.forEach((item) => {
             const percentage = kpis.totalOrders > 0 
-                ? ((item.count / kpis.totalOrders) * 100).toFixed(1) 
+                ? (item.count / kpis.totalOrders)
                 : 0;
 
             prioritySheet.addRow({
                 priority: item.priority || 'N/A',
                 count: item.count,
-                percentage: `${percentage}%`
+                percentage
             });
         });
     }

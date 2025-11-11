@@ -85,8 +85,20 @@ const WorkOrders = () => {
         totalPages: response.pagination.totalPages,
       }))
     } catch (error) {
-      console.error('Error loading work orders:', error)
-      toast.error('Error cargando órdenes de trabajo')
+      console.error('Error fetching work orders:', error)
+      let errorMessage = 'Error al cargar las órdenes de trabajo'
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Sesión expirada. Por favor inicia sesión nuevamente.'
+      } else if (error.response?.status === 403) {
+        errorMessage = 'No tienes permisos para ver estas órdenes de trabajo.'
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Error del servidor al cargar las órdenes.'
+      } else if (error.message?.includes('Network Error')) {
+        errorMessage = 'Error de conexión al cargar las órdenes.'
+      }
+      
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -253,8 +265,8 @@ const WorkOrders = () => {
       {stats && (
         <Grid container spacing={3} mb={3}>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   Total
                 </Typography>
@@ -265,37 +277,37 @@ const WorkOrders = () => {
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   Pendientes
                 </Typography>
                 <Typography variant="h4" color="warning.main">
-                  {stats.pending}
+                  {stats.byStatus?.pending || 0}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   En Progreso
                 </Typography>
                 <Typography variant="h4" color="info.main">
-                  {stats.in_progress}
+                  {stats.byStatus?.in_progress || 0}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography color="textSecondary" gutterBottom>
                   Completadas
                 </Typography>
                 <Typography variant="h4" color="success.main">
-                  {stats.completed}
+                  {stats.byStatus?.completed || 0}
                 </Typography>
               </CardContent>
             </Card>
@@ -408,7 +420,12 @@ const WorkOrders = () => {
                   </TableCell>
                   {user.role !== 'employee' && (
                     <TableCell>
-                      {workOrder.assigned_to_name || 'Sin asignar'}
+                      {workOrder.assigned_to_name 
+                        || (workOrder.assigned_user 
+                              ? ([workOrder.assigned_user.first_name, workOrder.assigned_user.last_name]
+                                  .filter(Boolean)
+                                  .join(' ') || workOrder.assigned_user.email)
+                              : 'Sin asignar')}
                     </TableCell>
                   )}
                   <TableCell>

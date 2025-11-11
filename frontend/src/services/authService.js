@@ -1,6 +1,7 @@
 import axios from 'axios'
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '')
+// Default to backend dev port 5001 to avoid macOS AirPlay conflicts on 5000/3001
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '')
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -85,6 +86,11 @@ export const authService = {
 
   async forgotPassword(email) {
     const response = await api.post('/api/auth/forgot-password', { email })
+    return response.data
+  },
+
+  async resetPassword(resetData) {
+    const response = await api.post('/api/auth/reset-password', resetData)
     return response.data
   },
 

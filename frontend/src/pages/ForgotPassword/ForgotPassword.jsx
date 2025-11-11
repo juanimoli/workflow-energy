@@ -41,10 +41,27 @@ const ForgotPassword = () => {
         icon: '📧'
       })
     } catch (err) {
-      const errorMessage = err.response?.data?.message || err.response?.data?.error || 'Error al procesar solicitud'
+      let errorMessage = 'Error al procesar la solicitud'
+      
+      // Provide user-friendly error messages
+      if (err.response?.status === 404) {
+        errorMessage = 'No se encontró una cuenta con ese correo electrónico'
+      } else if (err.response?.status === 400) {
+        errorMessage = 'Correo electrónico inválido'
+      } else if (err.response?.status === 429) {
+        errorMessage = 'Demasiadas solicitudes. Espera unos minutos antes de volver a intentar.'
+      } else if (err.response?.status >= 500) {
+        errorMessage = 'Error del servidor. Intenta más tarde.'
+      } else if (err.message?.includes('Network Error')) {
+        errorMessage = 'Error de conexión. Verifica tu conexión a internet.'
+      } else if (err.response?.data?.message && !err.response.data.message.includes('status')) {
+        errorMessage = err.response.data.message
+      }
+      
       setError(errorMessage)
       toast.error(errorMessage, {
-        duration: 5000
+        duration: 5000,
+        icon: '❌'
       })
     } finally {
       setLoading(false)

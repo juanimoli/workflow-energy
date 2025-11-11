@@ -36,16 +36,22 @@ router.get('/reverse', async (req, res) => {
 
     // Hacer petición a OpenStreetMap Nominatim desde el backend (evita CORS)
     const https = require('https');
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`;
+    
+    // Add language preference and zoom level for better results
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=es,en&zoom=18`;
 
     const options = {
       headers: {
-        'User-Agent': 'WorkflowEnergy/1.0 (Node.js backend)',
-        'Accept': 'application/json'
-      }
+        'User-Agent': 'WorkflowEnergy/1.0 (contact@workflowenergy.com)',
+        'Accept': 'application/json',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+      },
+      timeout: 10000 // 10 second timeout
     };
 
-    https.get(url, options, (apiResponse) => {
+    logger.info('Attempting reverse geocoding:', { lat: latitude, lon: longitude, url });
+
+    const request = https.get(url, options, (apiResponse) => {
       let data = '';
 
       apiResponse.on('data', (chunk) => {
@@ -54,51 +60,118 @@ router.get('/reverse', async (req, res) => {
 
       apiResponse.on('end', () => {
         try {
+          logger.info('Nominatim response received:', { statusCode: apiResponse.statusCode, dataLength: data.length });
+          
+          if (apiResponse.statusCode !== 200) {
+            logger.warn('Nominatim returned non-200 status:', apiResponse.statusCode);
+            return res.json({
+              success: false,
+              address: `Coordenadas: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+              message: 'Servicio de geocodificación no disponible'
+            });
+          }
+
           const parsed = JSON.parse(data);
           
-          if (parsed.display_name) {
+          if (parsed && parsed.display_name) {
+            // Create a more readable address format
+            let formattedAddress = parsed.display_name;
+            
+            // Try to create a shorter, more readable format for Argentina
+            if (parsed.address) {
+              const addr = parsed.address;
+              const parts = [];
+              
+              // Add street info
+              if (addr.house_number && addr.road) {
+                parts.push(`${addr.road} ${addr.house_number}`);
+              } else if (addr.road) {
+                parts.push(addr.road);
+              }
+              
+              // Add locality
+              const locality = addr.city || addr.town || addr.village || addr.municipality;
+              if (locality) {
+                parts.push(locality);
+              }
+              
+              // Add state/province
+              if (addr.state && addr.state !== locality) {
+                parts.push(addr.state);
+              }
+              
+              // Add country if not Argentina (since it's likely an Argentine app)
+              if (addr.country && !addr.country.includes('Argentina')) {
+                parts.push(addr.country);
+              }
+              
+              if (parts.length > 0) {
+                formattedAddress = parts.join(', ');
+              }
+            }
+
             logger.info('Geocoding successful:', {
               lat: latitude,
               lon: longitude,
-              address: parsed.display_name
+              originalAddress: parsed.display_name,
+              formattedAddress: formattedAddress
             });
 
             res.json({
               success: true,
-              address: parsed.display_name,
+              address: formattedAddress,
+              originalAddress: parsed.display_name,
               details: {
                 road: parsed.address?.road,
+                house_number: parsed.address?.house_number,
                 city: parsed.address?.city || parsed.address?.town || parsed.address?.village,
+                municipality: parsed.address?.municipality,
                 state: parsed.address?.state,
                 country: parsed.address?.country,
                 postcode: parsed.address?.postcode
               }
             });
           } else {
-            // Si no hay resultado, devolver coordenadas
+            logger.warn('No address found in Nominatim response:', parsed);
+            // Si no hay resultado, devolver coordenadas formateadas
             res.json({
               success: false,
-              address: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+              address: `Coordenadas: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
               message: 'No se encontró dirección para estas coordenadas'
             });
           }
         } catch (parseError) {
-          logger.error('Error parsing geocoding response:', parseError);
+          logger.error('Error parsing geocoding response:', { 
+            error: parseError.message, 
+            data: data.substring(0, 200) 
+          });
           res.json({
             success: false,
-            address: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            address: `Coordenadas: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
             message: 'Error al procesar respuesta de geocodificación'
           });
         }
       });
-    }).on('error', (error) => {
+    });
+
+    request.on('error', (error) => {
       logger.error('Error fetching geocoding data:', error);
       
       // Devolver coordenadas como fallback
       res.json({
         success: false,
-        address: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+        address: `Coordenadas: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
         message: 'No se pudo obtener dirección, usando coordenadas'
+      });
+    });
+
+    request.on('timeout', () => {
+      logger.error('Geocoding request timeout');
+      request.destroy();
+      res.json({
+        success: false,
+        address: `Coordenadas: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+        message: 'Tiempo de espera agotado para obtener dirección'
       });
     });
 

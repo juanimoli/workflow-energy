@@ -34,16 +34,19 @@ import {
   Security as SecurityIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import userService from '../../services/userService';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '');
 
 const AccessLogs = () => {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [users, setUsers] = useState([]); // For username dropdown
+  const [usersLoading, setUsersLoading] = useState(false);
   
   // Pagination
   const [page, setPage] = useState(0);
@@ -110,6 +113,35 @@ const AccessLogs = () => {
     fetchStats();
   }, [page, rowsPerPage]);
 
+  // Load users for dropdown (admin only page)
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        setUsersLoading(true);
+        const data = await userService.getAllUsers();
+        // Keep only active users; map with display label
+        const list = (data.users || []).filter(u => u.is_active !== false);
+        setUsers(list);
+      } catch (e) {
+        console.error('Error loading users for access logs filter', e);
+      } finally {
+        setUsersLoading(false);
+      }
+    };
+    loadUsers();
+  }, []);
+
+  // Dynamic filtering: debounce fetch when filters change
+  useEffect(() => {
+    const t = setTimeout(() => {
+      // reset to first page when filters change
+      setPage(0);
+      fetchLogs();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
   };
@@ -120,16 +152,15 @@ const AccessLogs = () => {
   };
 
   const handleFilterChange = (field) => (event) => {
-    setFilters({
-      ...filters,
+    setFilters(prev => ({
+      ...prev,
       [field]: event.target.value
-    });
+    }));
+    // move back to first page for new filters
+    if (page !== 0) setPage(0);
   };
 
-  const applyFilters = () => {
-    setPage(0);
-    fetchLogs();
-  };
+  // applyFilters no longer needed (dynamic)
 
   const resetFilters = () => {
     setFilters({
@@ -204,10 +235,10 @@ const AccessLogs = () => {
           <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ bgcolor: 'success.light' }}>
               <CardContent>
-                <Typography color="success.dark" gutterBottom variant="body2">
+                <Typography color="common.white" gutterBottom variant="body2">
                   Logins Exitosos
                 </Typography>
-                <Typography variant="h4" color="success.dark">
+                <Typography variant="h4" color="common.white">
                   {stats.successful_logins || 0}
                 </Typography>
               </CardContent>
@@ -216,10 +247,10 @@ const AccessLogs = () => {
           <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ bgcolor: 'error.light' }}>
               <CardContent>
-                <Typography color="error.dark" gutterBottom variant="body2">
+                <Typography color="common.white" gutterBottom variant="body2">
                   Logins Fallidos
                 </Typography>
-                <Typography variant="h4" color="error.dark">
+                <Typography variant="h4" color="common.white">
                   {stats.failed_logins || 0}
                 </Typography>
               </CardContent>
@@ -264,14 +295,26 @@ const AccessLogs = () => {
           </Grid>
           
           <Grid item xs={12} sm={6} md={2.5}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Usuario"
-              value={filters.username}
-              onChange={handleFilterChange('username')}
-              placeholder="Buscar usuario..."
-            />
+            <FormControl fullWidth size="small" variant="outlined">
+              <InputLabel id="user-filter-label">Usuario</InputLabel>
+              <Select
+                labelId="user-filter-label"
+                id="user-filter"
+                value={filters.username}
+                label="Usuario"
+                onChange={handleFilterChange('username')}
+              >
+                <MenuItem value="">
+                  <em>Todos</em>
+                </MenuItem>
+                {usersLoading && <MenuItem disabled>Cargando...</MenuItem>}
+                {!usersLoading && users.map(u => (
+                  <MenuItem key={u.id} value={u.username}>
+                    {u.first_name} {u.last_name} - {u.email} ({u.role})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Grid>
           
           <Grid item xs={12} sm={6} md={2.5}>
@@ -311,11 +354,6 @@ const AccessLogs = () => {
           
           <Grid item xs={12} sm={6} md={1}>
             <Stack direction="row" spacing={1}>
-              <Tooltip title="Aplicar filtros">
-                <IconButton color="primary" onClick={applyFilters}>
-                  <FilterListIcon />
-                </IconButton>
-              </Tooltip>
               <Tooltip title="Limpiar filtros">
                 <IconButton onClick={resetFilters}>
                   <RefreshIcon />
@@ -367,10 +405,12 @@ const AccessLogs = () => {
                 logs.map((log) => (
                   <TableRow
                     key={log.id}
+                    hover
                     sx={{
-                      bgcolor: !log.success ? 'error.lighter' : 'inherit',
+                      // Remove aggressive red/green backgrounds and keep a neutral hover
+                      bgcolor: 'inherit',
                       '&:hover': {
-                        bgcolor: !log.success ? 'error.light' : 'action.hover'
+                        bgcolor: 'action.hover'
                       }
                     }}
                   >

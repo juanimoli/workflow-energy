@@ -22,6 +22,7 @@ import {
   Select,
   MenuItem,
   TextField,
+  Link,
 } from '@mui/material'
 import {
   Timeline,
@@ -341,9 +342,24 @@ const WorkOrderDetail = () => {
                   <Typography variant="subtitle2" color="textSecondary" gutterBottom>
                     📍 Ubicación
                   </Typography>
-                  <Typography variant="body1">
+                  <Typography variant="body1" sx={{ mb: 1 }}>
                     {workOrder.location}
                   </Typography>
+                  <Link
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(workOrder.location)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ 
+                      display: 'inline-flex', 
+                      alignItems: 'center', 
+                      gap: 0.5,
+                      fontSize: '0.875rem',
+                      textDecoration: 'none',
+                      '&:hover': { textDecoration: 'underline' }
+                    }}
+                  >
+                    🗺️ Ver en Google Maps
+                  </Link>
                 </Grid>
               )}
             </Grid>
@@ -431,13 +447,23 @@ const WorkOrderDetail = () => {
               <ListItem sx={{ px: 0 }}>
                 <ListItemText
                   primary="Asignado a"
-                  secondary={workOrder.assigned_to_name || 'Sin asignar'}
+                  secondary={workOrder.assigned_to_name 
+                    || (workOrder.assigned_user 
+                          ? ([workOrder.assigned_user.first_name, workOrder.assigned_user.last_name]
+                              .filter(Boolean)
+                              .join(' ') || workOrder.assigned_user.email)
+                          : 'Sin asignar')}
                 />
               </ListItem>
               <ListItem sx={{ px: 0 }}>
                 <ListItemText
                   primary="Creado por"
-                  secondary={workOrder.created_by_name}
+                  secondary={workOrder.created_by_name
+                    || (workOrder.creator
+                          ? ([workOrder.creator.first_name, workOrder.creator.last_name]
+                              .filter(Boolean)
+                              .join(' ') || workOrder.creator.email)
+                          : 'Desconocido')}
                 />
               </ListItem>
               {workOrder.team_name && (

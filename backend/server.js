@@ -29,38 +29,44 @@ const emailService = require('./utils/emailService');
 
 const app = express();
 const server = createServer(app);
+// Build allowed origins (include production frontend + optional comma list)
+const dynamicAllowed = [];
+if (process.env.ALLOWED_ORIGINS) {
+  dynamicAllowed.push(
+    ...process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+  );
+}
+const allowedOrigins = [
+  'http://localhost:3002',
+  'http://localhost:3001',
+  'http://localhost:8081',
+  'http://localhost:5173', // Vite default
+  process.env.FRONTEND_URL,
+  process.env.MOBILE_URL,
+  'https://workflow-energy.vercel.app', // prod Vercel
+  ...dynamicAllowed
+].filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: [
-      process.env.FRONTEND_URL || "http://localhost:3002",
-      "http://localhost:3001"
-    ],
-    methods: ["GET", "POST"]
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
 // CORS middleware - must be before other middleware
-const allowedOrigins = [
-  "http://localhost:3002",
-  "http://localhost:3001",
-  "http://localhost:8081",
-  process.env.FRONTEND_URL,
-  process.env.MOBILE_URL
-].filter(Boolean); // Remove undefined values
-
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    const msg = `CORS not allowed from origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`;
+    if (!origin) return callback(null, true); // mobile / curl
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    const msg = `CORS blocked origin: ${origin}. Allowed: ${allowedOrigins.join(', ')}`;
+    logger.warn(msg);
     return callback(new Error(msg), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Security middleware
@@ -222,6 +228,9 @@ const startServer = async () => {
         hasSendGridKey: Boolean(process.env.SENDGRID_API_KEY),
         smtpHost: process.env.SMTP_HOST || null
       });
+      if ((process.env.NODE_ENV === 'production') && emailService.provider === 'dev') {
+        logger.warn('Email provider is set to DEV in production. Forgot-password emails will NOT be sent. Set EMAIL_PROVIDER=sendgrid (with SENDGRID_API_KEY) or EMAIL_PROVIDER=smtp (with SMTP_*) and EMAIL_FROM.');
+      }
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

@@ -1,81 +1,121 @@
-# Email Providers Setup (Local & Production)
+# Email Setup with Resend.com
 
-This backend supports multiple email providers for password reset and future notifications.
+This backend uses **Resend.com** for sending password reset emails and other notifications.
 
-Providers:
-- dev (default): Logs email content and writes reset URLs to `backend/logs/password-reset-urls.txt`.
-- sendgrid: Uses SendGrid API.
-- smtp: Uses any SMTP server (e.g., Mailtrap for local, corporate SMTP, Postmark, etc.).
-- ethereal: Ephemeral inbox for development (preview URL in logs).
+## Quick Setup
+
+### Production (Required)
+
+Add these environment variables:
+
+```env
+NODE_ENV=production
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
+EMAIL_FROM=noreply@yourdomain.com
+FRONTEND_URL=https://your-production-domain.com
+```
+
+### Development (Optional)
+
+If `RESEND_API_KEY` is not set in development, emails will be logged to console and saved to `backend/logs/password-reset-urls.txt`.
+
+```env
+NODE_ENV=development
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx  # Optional for dev
+EMAIL_FROM=noreply@yourdomain.com
+FRONTEND_URL=http://localhost:3002
+```
+
+## Get Your Resend API Key
+
+1. **Sign up**: https://resend.com (Free tier: 100 emails/day, 3,000/month)
+2. **Verify your domain** (or use `onboarding@resend.dev` for testing)
+3. **Create API Key**: Dashboard → API Keys → Create API Key
+4. **Copy the key** (starts with `re_`)
+5. **Add to environment**: `RESEND_API_KEY=re_your_key_here`
 
 ## Environment Variables
 
-Common:
-- FRONTEND_URL=http://localhost:3002
-- EMAIL_FROM=no-reply@workflowenergy.com
-- EMAIL_PROVIDER=dev | sendgrid | smtp | ethereal (optional; auto-detects if not set)
-- EMAIL_RESET_BASE_URL=http://localhost:3002 (takes absolute precedence for building reset links)
-- LOCAL_FRONTEND_URL=http://localhost:3002 (used in development when no EMAIL_RESET_BASE_URL)
+### Required for Production
 
-SendGrid:
-- SENDGRID_API_KEY=SG.xxxxxx
+- `RESEND_API_KEY`: Your Resend API key (starts with `re_`)
+- `EMAIL_FROM`: Verified sender email address
 
-SMTP:
-- SMTP_HOST=smtp.mailtrap.io (or your SMTP host)
-- SMTP_PORT=587 (default 587)
-- SMTP_SECURE=false (true only for TLS/465)
-- SMTP_USER=your_user
-- SMTP_PASS=your_pass
+### Optional
 
-Ethereal:
-- EMAIL_PROVIDER=ethereal (no other vars needed; creates a throwaway account automatically)
+- `FRONTEND_URL`: Base URL for password reset links (default: `http://localhost:3002`)
+- `EMAIL_RESET_BASE_URL`: Override for reset link base URL
 
-If `EMAIL_PROVIDER` is not set, auto-selection order:
-1) `sendgrid` if `SENDGRID_API_KEY` is present
-2) `smtp` if `SMTP_HOST` is present
-3) `ethereal` if in development (default convenient local inbox)
-4) `dev` otherwise
+## Reset URL Priority
 
-## Local Development Options
+The system builds password reset links in this order:
 
-1) Ethereal (now default if no provider vars set, in dev):
-  - Just start the backend; a test account is created automatically.
-  - After a password reset request you can run `node test-password-reset.js` or check logs for preview URL.
+1. `EMAIL_RESET_BASE_URL` (if set, takes precedence)
+2. `LOCAL_FRONTEND_URL` (only in development)
+3. `FRONTEND_URL`
+4. `http://localhost:3002` (fallback)
 
-2) Dev logger (force no real email):
-  - Set `EMAIL_PROVIDER=dev` explicitly.
-  - Reset URLs are logged and saved to `backend/logs/password-reset-urls.txt`.
+## Testing Password Reset
 
-3) Mailtrap (SMTP realistic local):
-  - Set `EMAIL_PROVIDER=smtp` and provide SMTP_* variables.
+### Via UI
+Navigate to login page → "¿Olvidaste tu contraseña?"
 
-## Production Setup (Recommended)
+### Via API
+```bash
+curl -X POST http://localhost:5001/api/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com"}'
+```
 
-- Use SendGrid:
-  - Set `EMAIL_PROVIDER=sendgrid`
-  - Set `SENDGRID_API_KEY`
-  - Set `EMAIL_FROM` to a verified sender address
+### Development Mode (No API Key)
 
-Alternatively, use your company SMTP:
-- Set `EMAIL_PROVIDER=smtp` and the `SMTP_*` variables accordingly
+If `RESEND_API_KEY` is not set in development:
 
-## Verifying the Flow
+1. **Console Output**: Reset URL printed to terminal
+2. **File Log**: URLs saved to `backend/logs/password-reset-urls.txt`
+3. **Dev Endpoint**: `GET http://localhost:5001/dev-reset-urls` (only in development)
 
-- Trigger "¿Olvidaste tu contraseña?" in the UI or POST to `/api/auth/forgot-password`.
-- Reset URL base selection order for links:
-  1) EMAIL_RESET_BASE_URL
-  2) LOCAL_FRONTEND_URL (only in development)
-  3) FRONTEND_URL
-  4) http://localhost:3002
-- In dev, list recent URLs:
-  - GET `/dev-reset-urls` or open `backend/logs/password-reset-urls.txt`.
-- Open the link and complete the reset at `/reset-password`.
+## Verifying Email Logs
+
+Check backend startup logs for:
+
+```
+=== EMAIL CONFIGURATION ===
+Has Resend API Key: true
+EMAIL_FROM: noreply@yourdomain.com
+===========================
+```
 
 ## Troubleshooting
 
-- No emails in production:
-  - Check logs for provider errors.
-  - Verify `EMAIL_PROVIDER` and required variables.
-  - For SendGrid, verify sender domain and API key permissions.
-- Local curl failing:
-  - Ensure backend is running on the expected port. Set `PORT=3001` to match your curl example.
+### No emails in production
+
+- Verify `RESEND_API_KEY` is set correctly
+- Check `EMAIL_FROM` is a verified sender in Resend dashboard
+- Review backend logs for API errors
+
+### Domain verification required
+
+If using a custom domain, you must verify it in Resend:
+- Dashboard → Domains → Add Domain
+- Add DNS records (SPF, DKIM)
+- Wait for verification (usually < 1 hour)
+
+Or use `onboarding@resend.dev` for testing (limited to verified recipient emails).
+
+### Rate limiting
+
+Free tier limits:
+- 100 emails/day
+- 3,000 emails/month
+
+Upgrade your plan if needed.
+
+## Production Checklist
+
+- [ ] `RESEND_API_KEY` configured
+- [ ] `EMAIL_FROM` set to verified sender
+- [ ] `NODE_ENV=production`
+- [ ] `FRONTEND_URL` points to production frontend
+- [ ] Domain verified in Resend (if using custom domain)
+- [ ] Test password reset flow end-to-end

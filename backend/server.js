@@ -19,7 +19,6 @@ const geocodeRoutes = require('./routes/geocode');
 const teamsRoutes = require('./routes/teams');
 const accessLogsRoutes = require('./routes/accessLogs');
 const devRoutes = require('./routes/dev');
-const testResetRoutes = require('./routes/test-reset');
 const resetFormRoutes = require('./routes/resetForm');
 
 const logger = require('./utils/logger');
@@ -188,11 +187,6 @@ app.use('/api/access-logs', accessLogsRoutes);
 // Minimal HTML reset page (works without frontend)
 app.use('/', resetFormRoutes);
 
-// Development/Testing routes
-if (process.env.NODE_ENV !== 'production') {
-  app.use('/api/test', testResetRoutes);
-}
-
 // Socket.io initialization
 initializeSocket(io);
 
@@ -222,14 +216,15 @@ const startServer = async () => {
     server.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      // Log selected email provider for clarity in local dev
-      logger.info('Email provider configuration', {
-        provider: emailService.provider,
-        hasSendGridKey: Boolean(process.env.SENDGRID_API_KEY),
-        smtpHost: process.env.SMTP_HOST || null
-      });
-      if ((process.env.NODE_ENV === 'production') && emailService.provider === 'dev') {
-        logger.warn('Email provider is set to DEV in production. Forgot-password emails will NOT be sent. Set EMAIL_PROVIDER=sendgrid (with SENDGRID_API_KEY) or EMAIL_PROVIDER=smtp (with SMTP_*) and EMAIL_FROM.');
+      
+      // Log email configuration
+      console.log('\n=== EMAIL CONFIGURATION ===');
+      console.log('Has Resend API Key:', Boolean(process.env.RESEND_API_KEY));
+      console.log('EMAIL_FROM:', process.env.EMAIL_FROM || 'onboarding@resend.dev');
+      console.log('===========================\n');
+      
+      if ((process.env.NODE_ENV === 'production') && !process.env.RESEND_API_KEY) {
+        logger.warn('RESEND_API_KEY not configured in production. Password reset emails will NOT be sent.');
       }
     });
   } catch (error) {

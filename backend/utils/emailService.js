@@ -1,155 +1,86 @@
+const { Resend } = require('resend');
 const logger = require('./logger');
 
 /**
- * Email service with multi-provider support.
- * Providers:
- *  - dev (default fallback): logs email + writes URL file
- *  - sendgrid: requires SENDGRID_API_KEY
- *  - smtp: requires SMTP_HOST, optional SMTP_PORT, SMTP_USER, SMTP_PASS
- *  - ethereal: ephemeral test inbox (set EMAIL_PROVIDER=ethereal)
+ * Email service using Resend.com
+ * Requires: RESEND_API_KEY environment variable
  */
-let sgMail = null;
-let nodemailer = null;
-
 class EmailService {
   constructor() {
     this.isDevelopment = process.env.NODE_ENV !== 'production';
-    this.provider = (process.env.EMAIL_PROVIDER || '').toLowerCase();
-
-    // Auto-detect provider if not explicitly set
-    if (!this.provider) {
-      if (process.env.SENDGRID_API_KEY) this.provider = 'sendgrid';
-      else if (process.env.SMTP_HOST) this.provider = 'smtp';
-      else this.provider = this.isDevelopment ? 'ethereal' : 'dev';
+    this.resendApiKey = process.env.RESEND_API_KEY;
+    this.resend = this.resendApiKey ? new Resend(this.resendApiKey) : null;
+    
+    // Log configuration on startup
+    if (!this.resendApiKey) {
+      logger.warn('RESEND_API_KEY not configured. Emails will be logged in development mode only.');
+    } else {
+      logger.info('Email service initialized with Resend.com');
     }
-
-    // Prepare SMTP config (used for smtp provider)
-    this.smtpConfig = {
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587,
-      secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
-      auth: (process.env.SMTP_USER && process.env.SMTP_PASS) ? {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      } : undefined,
-    };
   }
 
   async sendPasswordReset(email, resetToken, userName = '') {
     try {
       // Determine which base URL to use for the reset link
-      // Priority:
-      // 1) EMAIL_RESET_BASE_URL (forces a specific host in any env)
-      // 2) LOCAL_FRONTEND_URL when in development
-      // 3) FRONTEND_URL
-      // 4) http://localhost:3002
       const selectedBase = process.env.EMAIL_RESET_BASE_URL
         || (this.isDevelopment ? process.env.LOCAL_FRONTEND_URL : null)
         || process.env.FRONTEND_URL
         || 'http://localhost:3002';
       const frontendBase = selectedBase.replace(/\/$/, '');
       const resetUrl = `${frontendBase}/reset-password?token=${resetToken}`;
-      const emailData = {
+
+      // If no API key configured, log in dev mode
+      if (!this.resend) {
+        if (this.isDevelopment) {
+          this.logDevEmail(email, resetUrl, userName);
+          return { success: true, provider: 'dev', messageId: 'dev-mode-' + Date.now() };
+        } else {
+          throw new Error('RESEND_API_KEY not configured in production');
+        }
+      }
+
+      // Send email via Resend
+      const fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+      const data = await this.resend.emails.send({
+        from: fromEmail,
         to: email,
         subject: 'Recuperación de Contraseña - WorkFlow Energy',
         html: this.generatePasswordResetHtml(userName, resetUrl),
-        text: this.generatePasswordResetText(userName, resetUrl)
+      });
+
+      logger.info('Password reset email sent via Resend', { 
+        to: email, 
+        messageId: data.id 
+      });
+      
+      return { 
+        success: true, 
+        provider: 'resend', 
+        messageId: data.id 
       };
 
-  // Provider routing
-      switch (this.provider) {
-        case 'sendgrid':
-          return await this.sendWithSendGrid(emailData, resetUrl);
-        case 'smtp':
-          return await this.sendWithSMTP(emailData, resetUrl);
-        case 'ethereal':
-          return await this.sendWithEthereal(emailData, resetUrl);
-        case 'dev':
-        default:
-          this.logDevEmail(emailData, resetUrl);
-          return { success: true, provider: 'dev', messageId: 'dev-mode-' + Date.now() };
-      }
     } catch (error) {
       logger.error('Failed to send password reset email:', error);
+      
+      // Fallback to dev logging in development
+      if (this.isDevelopment) {
+        this.logDevEmail(email, resetUrl, userName);
+        return { success: true, provider: 'dev-fallback' };
+      }
+      
       throw error;
     }
   }
 
-  async sendWithSendGrid(emailData, resetUrl) {
-    try {
-      if (!sgMail) sgMail = require('@sendgrid/mail');
-      if (!process.env.SENDGRID_API_KEY) throw new Error('SENDGRID_API_KEY no configurada');
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      const fromEmail = process.env.EMAIL_FROM || 'no-reply@workflowenergy.com';
-      const msg = { from: fromEmail, ...emailData };
-      const [resp] = await sgMail.send(msg);
-      logger.info('Password reset email sent via SendGrid', { to: emailData.to, status: resp?.statusCode });
-      return { success: true, provider: 'sendgrid', status: resp?.statusCode };
-    } catch (err) {
-      logger.error('SendGrid error:', err);
-      if (this.isDevelopment) {
-        this.logDevEmail(emailData, resetUrl);
-        return { success: true, provider: 'dev-fallback' };
-      }
-      return { success: false, error: err.message };
-    }
-  }
-
-  async sendWithSMTP(emailData, resetUrl) {
-    try {
-      if (!nodemailer) nodemailer = require('nodemailer');
-      if (!this.smtpConfig.host) throw new Error('SMTP_HOST no configurado');
-      const transporter = nodemailer.createTransport(this.smtpConfig);
-      const fromEmail = process.env.EMAIL_FROM || 'no-reply@workflowenergy.com';
-      const info = await transporter.sendMail({ from: fromEmail, ...emailData });
-      logger.info('Password reset email sent via SMTP', { to: emailData.to, messageId: info.messageId });
-      return { success: true, provider: 'smtp', messageId: info.messageId };
-    } catch (err) {
-      logger.error('SMTP error:', err);
-      if (this.isDevelopment) {
-        this.logDevEmail(emailData, resetUrl);
-        return { success: true, provider: 'dev-fallback' };
-      }
-      return { success: false, error: err.message };
-    }
-  }
-
-  async sendWithEthereal(emailData, resetUrl) {
-    try {
-      if (!nodemailer) nodemailer = require('nodemailer');
-      const testAccount = await nodemailer.createTestAccount();
-      const transporter = nodemailer.createTransport({
-        host: testAccount.smtp.host,
-        port: testAccount.smtp.port,
-        secure: testAccount.smtp.secure,
-        auth: { user: testAccount.user, pass: testAccount.pass },
-      });
-      const fromEmail = process.env.EMAIL_FROM || 'no-reply@workflowenergy.com';
-      const info = await transporter.sendMail({ from: fromEmail, ...emailData });
-      const preview = nodemailer.getTestMessageUrl(info);
-      logger.info('Ethereal email preview URL', { preview });
-      return { success: true, provider: 'ethereal', messageId: info.messageId, preview };
-    } catch (err) {
-      logger.error('Ethereal error:', err);
-      if (this.isDevelopment) {
-        this.logDevEmail(emailData, resetUrl);
-        return { success: true, provider: 'dev-fallback' };
-      }
-      return { success: false, error: err.message };
-    }
-  }
-
-  logDevEmail(emailData, resetUrl) {
-    const { to, subject } = emailData;
+  logDevEmail(email, resetUrl, userName) {
     logger.info('📧 Password Reset Email (DEVELOPMENT MODE)', {
-      to,
-      subject,
+      to: email,
       resetUrl,
       expires: '1 hour'
     });
     console.log('\n=== PASSWORD RESET EMAIL (DEV MODE) ===');
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
+    console.log(`To: ${email}`);
+    console.log(`User: ${userName || 'N/A'}`);
     console.log(`Reset URL: ${resetUrl}`);
     console.log('======================================\n');
 
@@ -160,7 +91,7 @@ class EmailService {
       const logsDir = path.join(__dirname, '../logs');
       const resetUrlFile = path.join(logsDir, 'password-reset-urls.txt');
       const timestamp = new Date().toISOString();
-      const logEntry = `${timestamp} - Email: ${to} - Reset URL: ${resetUrl}\n`;
+      const logEntry = `${timestamp} - Email: ${email} - Reset URL: ${resetUrl}\n`;
       if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
       fs.appendFileSync(resetUrlFile, logEntry, { encoding: 'utf8' });
       console.log(`Reset URL also saved to: ${resetUrlFile}`);
@@ -211,26 +142,6 @@ class EmailService {
     </div>
 </body>
 </html>`;
-  }
-
-  generatePasswordResetText(userName, resetUrl) {
-    return `
-Recuperación de Contraseña - WorkFlow Energy
-
-Hola${userName ? ` ${userName}` : ''},
-
-Recibimos una solicitud para restablecer la contraseña de tu cuenta en WorkFlow Energy.
-
-Para crear una nueva contraseña, visita el siguiente enlace:
-${resetUrl}
-
-Este enlace expirará en 1 hora por motivos de seguridad.
-
-Si no solicitaste restablecer tu contraseña, puedes ignorar este correo. Tu contraseña no será cambiada.
-
----
-Este correo fue enviado por WorkFlow Energy.
-`;
   }
 }
 

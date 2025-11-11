@@ -56,7 +56,7 @@ ChartJS.register(
   LineElement
 )
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '')
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '')
 
 const Dashboard = () => {
   const { user } = useAuth()
@@ -84,8 +84,20 @@ const Dashboard = () => {
       setError(null)
     } catch (error) {
       console.error('Error loading dashboard metrics:', error)
-      setError('Error al cargar las métricas del dashboard')
-      toast.error('Error al cargar las métricas')
+      let errorMessage = 'Error al cargar las métricas del dashboard'
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Sesión expirada. Por favor inicia sesión nuevamente.'
+      } else if (error.response?.status === 403) {
+        errorMessage = 'No tienes permisos para acceder a estas métricas.'
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Error del servidor al cargar las métricas.'
+      } else if (error.message?.includes('Network Error')) {
+        errorMessage = 'Error de conexión al cargar las métricas.'
+      }
+      
+      setError(errorMessage)
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -125,7 +137,7 @@ const Dashboard = () => {
           date: new Date(t.date).toLocaleDateString('es-ES'),
           created: t.created,
           completed: t.completed,
-          pending: t.in_progress,
+          pending: t.pending, // fix: previously used in_progress by mistake
         })),
       }
 
@@ -385,19 +397,23 @@ const Dashboard = () => {
       <Grid container spacing={3} mb={4}>
         {statCards.map((card, index) => (
           <Grid item xs={12} sm={6} md={4} lg={2} key={index}>
-            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <CardContent sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography color="text.secondary" variant="body2" gutterBottom>
-                    {card.title}
-                  </Typography>
-                  <Typography variant="h4" component="div">
-                    {card.value}
-                  </Typography>
-                </Box>
-                <Box sx={{ color: card.color }}>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', pr: 7, pt: 5 }}>
+                <Box sx={{ 
+                  position: 'absolute', 
+                  top: 16, 
+                  right: 16, 
+                  color: card.color,
+                  opacity: 0.8
+                }}>
                   {card.icon}
                 </Box>
+                <Typography color="text.secondary" variant="body2" gutterBottom>
+                  {card.title}
+                </Typography>
+                <Typography variant="h4" component="div">
+                  {card.value}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>

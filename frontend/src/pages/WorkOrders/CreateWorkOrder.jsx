@@ -23,6 +23,7 @@ import { useAuth } from '../../context/AuthContext'
 import { workOrderService } from '../../services/workOrderService'
 import { userService } from '../../services/userService'
 import { projectService } from '../../services/projectService'
+import { getCurrentLocationWithAddress } from '../../utils/locationUtils'
 import toast from 'react-hot-toast'
 import dayjs from 'dayjs'
 
@@ -108,63 +109,30 @@ const CreateWorkOrder = () => {
     }))
   }
 
-  const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error('Tu navegador no soporta geolocalización')
-      return
-    }
-
+  const handleGetCurrentLocation = async () => {
     setGettingLocation(true)
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords
-        
-        try {
-          // Intentar obtener dirección desde nuestro backend (evita CORS)
-          const response = await fetch(
-            `http://localhost:5000/api/geocode/reverse?lat=${latitude}&lon=${longitude}`
-          )
-          
-          if (response.ok) {
-            const data = await response.json()
-            const address = data.address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-            
-            setFormData(prev => ({
-              ...prev,
-              location: address
-            }))
-            toast.success('📍 Ubicación obtenida correctamente')
-          } else {
-            // Si falla, usar coordenadas formateadas
-            setFormData(prev => ({
-              ...prev,
-              location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-            }))
-            toast.success('📍 Ubicación obtenida')
-          }
-        } catch (error) {
-          console.error('Error getting address:', error)
-          // Si falla todo, usar coordenadas formateadas como fallback
-          setFormData(prev => ({
-            ...prev,
-            location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-          }))
-          toast.success('📍 Ubicación obtenida')
-        }
-        
-        setGettingLocation(false)
-      },
-      (error) => {
-        console.error('Error getting location:', error)
-        toast.error('No se pudo obtener tu ubicación. Verifica los permisos del navegador.')
-        setGettingLocation(false)
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
+    
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+      const result = await getCurrentLocationWithAddress(apiUrl)
+      
+      setFormData(prev => ({
+        ...prev,
+        location: result.location
+      }))
+      
+      if (result.type === 'address') {
+        toast.success('📍 Dirección obtenida correctamente')
+      } else {
+        toast.success('📍 Ubicación obtenida (coordenadas)')
       }
-    )
+      
+    } catch (error) {
+      console.error('Error getting location:', error)
+      toast.error(error.message)
+    } finally {
+      setGettingLocation(false)
+    }
   }
 
   const validateForm = () => {
@@ -212,8 +180,35 @@ const CreateWorkOrder = () => {
       
     } catch (error) {
       console.error('Error creating work order:', error)
-      const message = error.response?.data?.error || 'Error al crear la orden de trabajo'
-      toast.error(message)
+      let errorMessage = 'Error al crear la orden de trabajo'
+
+      if (error.response?.status === 401) {
+        errorMessage = 'Sesión expirada. Por favor inicia sesión nuevamente.'
+      } else if (error.response?.status === 403) {
+        errorMessage = 'No tienes permisos para crear órdenes de trabajo.'
+      } else if (error.response?.status === 400) {
+        // Map server-side validation errors to fields and a friendly toast
+        const apiMessage = error.response?.data?.message
+        const apiErrors = error.response?.data?.errors
+        if (Array.isArray(apiErrors) && apiErrors.length > 0) {
+          const fieldErrors = {}
+          apiErrors.forEach(e => {
+            if (e.field) fieldErrors[e.field] = e.message
+          })
+          setErrors(prev => ({ ...prev, ...fieldErrors }))
+          errorMessage = apiMessage || 'Por favor completa todos los campos obligatorios'
+        } else {
+          errorMessage = apiMessage || 'Datos inválidos. Verifica la información ingresada.'
+        }
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Error del servidor al crear la orden.'
+      } else if (error.message?.includes('Network Error')) {
+        errorMessage = 'Error de conexión al crear la orden.'
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error
+      }
+
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -290,7 +285,16 @@ const CreateWorkOrder = () => {
                 <Grid item xs={12} md={6}>
                   <Autocomplete
                     options={users}
-                    getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.email})`}
+                    getOptionLabel={(option) => {
+                      if (!option) return ''
+                      const first = option.firstName ?? option.first_name ?? ''
+                      const last = option.lastName ?? option.last_name ?? ''
+                      const name = `${first} ${last}`.trim()
+                      if (name && option.email) return `${name} (${option.email})`
+                      if (name) return name
+                      return option.email || option.username || 'Usuario'
+                    }}
+                    isOptionEqualToValue={(opt, val) => opt?.id === val?.id}
                     onChange={handleUserChange}
                     disabled={loading}
                     renderInput={(params) => (
@@ -358,19 +362,21 @@ const CreateWorkOrder = () => {
               </Grid>
 
               {/* Ubicación / Dirección */}
-              <Grid item xs={12} md={8}>
+              <Grid item xs={12} md={10}>
                 <TextField
                   fullWidth
                   label="Ubicación / Dirección"
                   value={formData.location}
                   onChange={handleChange('location')}
                   disabled={loading}
-                  placeholder="Ej: Av. Corrientes 1234, Buenos Aires"
-                  helperText="Ingresa una dirección manualmente o usa el botón para obtener tu ubicación actual"
+                  placeholder="Ej: Av. Corrientes 1234, CABA o Planta Industrial Norte, Sector B"
+                  helperText="Ingresa una dirección específica o usa 'Mi Ubicación' para obtener automáticamente la dirección actual"
+                  multiline
+                  maxRows={2}
                 />
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={2}>
                 <Button
                   fullWidth
                   variant="outlined"
@@ -390,13 +396,9 @@ const CreateWorkOrder = () => {
                 </Button>
               </Grid>
 
-              {formData.location && (
-                <Grid item xs={12}>
-                  <Alert severity="info" icon="📍">
-                    <strong>Ubicación:</strong> {formData.location}
-                  </Alert>
-                </Grid>
-              )}
+              {/* Removed Test Geocoding button (dev utility) */}
+
+
 
               {/* ID de Equipo */}
               <Grid item xs={12} md={6}>

@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+// Default to backend dev port 5001 to match the rest of services
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '');
 
 const teamService = {
   // Obtener todos los equipos
@@ -63,7 +64,7 @@ const teamService = {
     const token = localStorage.getItem('accessToken');
     const response = await axios.post(
       `${API_BASE_URL}/api/teams/${teamId}/members`,
-      { userId, action: 'add' },
+      { userId },
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -76,9 +77,8 @@ const teamService = {
   // Remover miembro de un equipo
   removeMember: async (teamId, userId) => {
     const token = localStorage.getItem('accessToken');
-    const response = await axios.post(
-      `${API_BASE_URL}/api/teams/${teamId}/members`,
-      { userId, action: 'remove' },
+    const response = await axios.delete(
+      `${API_BASE_URL}/api/teams/${teamId}/members/${userId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,

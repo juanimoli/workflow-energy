@@ -85,8 +85,20 @@ const WorkOrders = () => {
         totalPages: response.pagination.totalPages,
       }))
     } catch (error) {
-      console.error('Error loading work orders:', error)
-      toast.error('Error cargando órdenes de trabajo')
+      console.error('Error fetching work orders:', error)
+      let errorMessage = 'Error al cargar las órdenes de trabajo'
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Sesión expirada. Por favor inicia sesión nuevamente.'
+      } else if (error.response?.status === 403) {
+        errorMessage = 'No tienes permisos para ver estas órdenes de trabajo.'
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Error del servidor al cargar las órdenes.'
+      } else if (error.message?.includes('Network Error')) {
+        errorMessage = 'Error de conexión al cargar las órdenes.'
+      }
+      
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -408,7 +420,12 @@ const WorkOrders = () => {
                   </TableCell>
                   {user.role !== 'employee' && (
                     <TableCell>
-                      {workOrder.assigned_to_name || 'Sin asignar'}
+                      {workOrder.assigned_to_name 
+                        || (workOrder.assigned_user 
+                              ? ([workOrder.assigned_user.first_name, workOrder.assigned_user.last_name]
+                                  .filter(Boolean)
+                                  .join(' ') || workOrder.assigned_user.email)
+                              : 'Sin asignar')}
                     </TableCell>
                   )}
                   <TableCell>

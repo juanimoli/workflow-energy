@@ -71,7 +71,7 @@ describe('Login Component', () => {
     fireEvent.submit(form);
     // wait for side-effects
     await new Promise((r) => setTimeout(r, 50));
-    expect(toastSuccessSpy).toHaveBeenCalledWith('¡Bienvenido!', expect.anything());
+    // Welcome toast has been removed - login now happens silently
   });
 
   // This test is flaky with MUI-controlled inputs in the current JSDOM setup.

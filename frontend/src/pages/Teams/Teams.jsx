@@ -179,11 +179,11 @@ const Teams = () => {
           {canCreateTeam && ' Haz clic en "Crear Equipo" para empezar.'}
         </Alert>
       ) : (
-        <Grid container spacing={3}>
+        <Grid container spacing={3} alignItems="stretch">
           {teams.map((team) => (
             <Grid item xs={12} sm={6} md={4} key={team.id}>
-              <Card>
-                <CardContent>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="h6" gutterBottom>
                     {team.name}
                   </Typography>

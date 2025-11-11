@@ -18,17 +18,21 @@ const syncRoutes = require('./routes/sync');
 const geocodeRoutes = require('./routes/geocode');
 const teamsRoutes = require('./routes/teams');
 const accessLogsRoutes = require('./routes/accessLogs');
+const devRoutes = require('./routes/dev');
+const testResetRoutes = require('./routes/test-reset');
+const resetFormRoutes = require('./routes/resetForm');
 
 const logger = require('./utils/logger');
 const { connectDB, getDB } = require('./config/database');
 const { initializeSocket } = require('./socket/socketHandler');
+const emailService = require('./utils/emailService');
 
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
     origin: [
-      process.env.FRONTEND_URL || "http://localhost:3000",
+      process.env.FRONTEND_URL || "http://localhost:3002",
       "http://localhost:3001"
     ],
     methods: ["GET", "POST"]
@@ -37,7 +41,7 @@ const io = new Server(server, {
 
 // CORS middleware - must be before other middleware
 const allowedOrigins = [
-  "http://localhost:3000",
+  "http://localhost:3002",
   "http://localhost:3001",
   "http://localhost:8081",
   process.env.FRONTEND_URL,
@@ -83,6 +87,57 @@ app.use(morgan('combined', { stream: { write: message => logger.info(message.tri
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Development-only routes (before rate limiting)
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/dev', devRoutes);
+  
+  // Simple endpoint for reset URLs without middleware
+  app.get('/dev-reset-urls', (req, res) => {
+    const fs = require('fs');
+    const path = require('path');
+    
+    try {
+      const resetUrlFile = path.join(__dirname, 'logs/password-reset-urls.txt');
+      
+      if (!fs.existsSync(resetUrlFile)) {
+        return res.json({ 
+          message: 'No reset URLs generated yet. Try the forgot password feature first.',
+          instructions: 'Use: curl -X POST http://localhost:5000/api/auth/forgot-password -H "Content-Type: application/json" -d \'{"email":"admin@workflowenergy.com"}\''
+        });
+      }
+
+      const content = fs.readFileSync(resetUrlFile, 'utf8');
+      const lines = content.trim().split('\n').filter(line => line.trim());
+      
+      // Get the last 5 URLs
+      const recentUrls = lines.slice(-5).map(line => {
+        const match = line.match(/^(.*?) - Email: (.*?) - Reset URL: (.*)$/);
+        if (match) {
+          return {
+            timestamp: match[1],
+            email: match[2],
+            resetUrl: match[3]
+          };
+        }
+        return { raw: line };
+      });
+
+      res.json({
+        message: 'Recent password reset URLs (Development Mode)',
+        count: recentUrls.length,
+        urls: recentUrls,
+        note: 'These URLs expire in 1 hour. Click on resetUrl to test the password reset flow.'
+      });
+
+    } catch (error) {
+      res.status(500).json({ 
+        message: 'Error reading reset URLs',
+        error: error.message 
+      });
+    }
+  });
+}
+
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({ 
@@ -124,6 +179,13 @@ app.use('/api/sync', syncRoutes);
 app.use('/api/geocode', geocodeRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/access-logs', accessLogsRoutes);
+// Minimal HTML reset page (works without frontend)
+app.use('/', resetFormRoutes);
+
+// Development/Testing routes
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/test', testResetRoutes);
+}
 
 // Socket.io initialization
 initializeSocket(io);
@@ -144,7 +206,8 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-const PORT = process.env.PORT || 5000;
+// Use 5001 by default in development to avoid conflicts with macOS AirPlay on 5000
+const PORT = process.env.PORT || 5001;
 
 // Start server
 const startServer = async () => {
@@ -153,6 +216,12 @@ const startServer = async () => {
     server.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      // Log selected email provider for clarity in local dev
+      logger.info('Email provider configuration', {
+        provider: emailService.provider,
+        hasSendGridKey: Boolean(process.env.SENDGRID_API_KEY),
+        smtpHost: process.env.SMTP_HOST || null
+      });
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

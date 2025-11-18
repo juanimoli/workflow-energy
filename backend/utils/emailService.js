@@ -1,21 +1,48 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const logger = require('./logger');
 
 /**
- * Email service using Resend.com
- * Requires: RESEND_API_KEY environment variable
+ * Email service using Nodemailer with Gmail SMTP
+ * Requires: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD environment variables
  */
 class EmailService {
   constructor() {
     this.isDevelopment = process.env.NODE_ENV !== 'production';
-    this.resendApiKey = process.env.RESEND_API_KEY;
-    this.resend = this.resendApiKey ? new Resend(this.resendApiKey) : null;
     
-    // Log configuration on startup
-    if (!this.resendApiKey) {
-      logger.warn('RESEND_API_KEY not configured. Emails will be logged in development mode only.');
+    // Configure Nodemailer transporter
+    this.transporter = null;
+    
+    const emailHost = process.env.EMAIL_HOST;
+    const emailPort = process.env.EMAIL_PORT || 587;
+    const emailUser = process.env.EMAIL_USER;
+    const emailPassword = process.env.EMAIL_PASSWORD;
+    const emailSecure = process.env.EMAIL_SECURE === 'true';
+    
+    if (emailHost && emailUser && emailPassword) {
+      this.transporter = nodemailer.createTransport({
+        host: emailHost,
+        port: parseInt(emailPort),
+        secure: emailSecure, // true for 465, false for other ports
+        auth: {
+          user: emailUser,
+          pass: emailPassword,
+        },
+      });
+      
+      // Verify connection
+      this.transporter.verify((error, success) => {
+        if (error) {
+          logger.error('Email service connection failed:', error);
+        } else {
+          logger.info('Email service initialized successfully with Nodemailer', {
+            host: emailHost,
+            port: emailPort,
+            user: emailUser
+          });
+        }
+      });
     } else {
-      logger.info('Email service initialized with Resend.com');
+      logger.warn('Email credentials not configured. Emails will be logged in development mode only.');
     }
   }
 
@@ -29,34 +56,34 @@ class EmailService {
       const frontendBase = selectedBase.replace(/\/$/, '');
       const resetUrl = `${frontendBase}/reset-password?token=${resetToken}`;
 
-      // If no API key configured, log in dev mode
-      if (!this.resend) {
+      // If no transporter configured, log in dev mode
+      if (!this.transporter) {
         if (this.isDevelopment) {
           this.logDevEmail(email, resetUrl, userName);
           return { success: true, provider: 'dev', messageId: 'dev-mode-' + Date.now() };
         } else {
-          throw new Error('RESEND_API_KEY not configured in production');
+          throw new Error('Email service not configured in production');
         }
       }
 
-      // Send email via Resend
-      const fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev';
-      const data = await this.resend.emails.send({
-        from: fromEmail,
+      // Send email via Nodemailer
+      const fromEmail = process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER;
+      const info = await this.transporter.sendMail({
+        from: `"WorkFlow Energy" <${fromEmail}>`,
         to: email,
         subject: 'Recuperación de Contraseña - WorkFlow Energy',
         html: this.generatePasswordResetHtml(userName, resetUrl),
       });
 
-      logger.info('Password reset email sent via Resend', { 
+      logger.info('Password reset email sent via Nodemailer', { 
         to: email, 
-        messageId: data.id 
+        messageId: info.messageId 
       });
       
       return { 
         success: true, 
-        provider: 'resend', 
-        messageId: data.id 
+        provider: 'nodemailer', 
+        messageId: info.messageId 
       };
 
     } catch (error) {
@@ -64,6 +91,12 @@ class EmailService {
       
       // Fallback to dev logging in development
       if (this.isDevelopment) {
+        const selectedBase = process.env.EMAIL_RESET_BASE_URL
+          || (this.isDevelopment ? process.env.LOCAL_FRONTEND_URL : null)
+          || process.env.FRONTEND_URL
+          || 'http://localhost:3002';
+        const frontendBase = selectedBase.replace(/\/$/, '');
+        const resetUrl = `${frontendBase}/reset-password?token=${resetToken}`;
         this.logDevEmail(email, resetUrl, userName);
         return { success: true, provider: 'dev-fallback' };
       }

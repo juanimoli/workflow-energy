@@ -218,13 +218,15 @@ const startServer = async () => {
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
       
       // Log email configuration
-      console.log('\n=== EMAIL CONFIGURATION ===');
-      console.log('Has Resend API Key:', Boolean(process.env.RESEND_API_KEY));
-      console.log('EMAIL_FROM:', process.env.EMAIL_FROM || 'onboarding@resend.dev');
+      console.log('\n=== EMAIL CONFIGURATION (Nodemailer) ===');
+      console.log('EMAIL_HOST:', process.env.EMAIL_HOST || 'Not configured');
+      console.log('EMAIL_PORT:', process.env.EMAIL_PORT || 'Not configured');
+      console.log('EMAIL_USER:', process.env.EMAIL_USER || 'Not configured');
+      console.log('EMAIL_FROM:', process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || 'Not configured');
       console.log('===========================\n');
       
-      if ((process.env.NODE_ENV === 'production') && !process.env.RESEND_API_KEY) {
-        logger.warn('RESEND_API_KEY not configured in production. Password reset emails will NOT be sent.');
+      if ((process.env.NODE_ENV === 'production') && !process.env.EMAIL_HOST) {
+        logger.warn('Email not configured in production. Password reset emails will NOT be sent.');
       }
     });
   } catch (error) {

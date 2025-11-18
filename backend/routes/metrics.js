@@ -11,7 +11,7 @@ const router = express.Router();
 router.get('/dashboard', authenticateToken, async (req, res) => {
   try {
     const supabase = getDB();
-    const { timeframe = '30', teamId, plantId } = req.query;
+    const { timeframe = '30', teamId, plantId, userId } = req.query;
     
     // Calculate date threshold
     const daysAgo = parseInt(timeframe);
@@ -30,10 +30,31 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       baseQuery = baseQuery.eq('plant_id', req.user.plant_id);
     }
 
-    // Additional filters
-    if (teamId && (req.user.role === 'admin' || req.user.role === 'supervisor')) {
+    // Additional filters (HU-11: Filtros Avanzados de Métricas)
+    // Priority: userId filter overrides teamId filter
+    if (userId && ['team_leader', 'supervisor', 'admin'].includes(req.user.role)) {
+      // Verify user has permission to view this user's data
+      const { data: targetUser } = await supabase
+        .from('users')
+        .select('id, team_id, plant_id')
+        .eq('id', userId)
+        .single();
+      
+      if (targetUser) {
+        // Team leaders can only see their team members
+        if (req.user.role === 'team_leader' && targetUser.team_id !== req.user.team_id) {
+          return res.status(403).json({ message: 'No tienes permisos para ver este empleado' });
+        }
+        // Supervisors can only see users in their plant
+        if (req.user.role === 'supervisor' && targetUser.plant_id !== req.user.plant_id) {
+          return res.status(403).json({ message: 'No tienes permisos para ver este empleado' });
+        }
+        baseQuery = baseQuery.eq('assigned_to', userId);
+      }
+    } else if (teamId && (req.user.role === 'admin' || req.user.role === 'supervisor')) {
       baseQuery = baseQuery.eq('team_id', teamId);
     }
+    
     if (plantId && req.user.role === 'admin') {
       baseQuery = baseQuery.eq('plant_id', plantId);
     }

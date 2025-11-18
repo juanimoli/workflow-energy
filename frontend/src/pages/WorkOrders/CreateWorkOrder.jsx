@@ -113,7 +113,7 @@ const CreateWorkOrder = () => {
     setGettingLocation(true)
     
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001'
       const result = await getCurrentLocationWithAddress(apiUrl)
       
       setFormData(prev => ({

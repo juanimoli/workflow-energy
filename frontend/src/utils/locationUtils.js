@@ -43,7 +43,7 @@ export const formatLocationForDisplay = (location) => {
  * @param {string} apiUrl - Base API URL
  * @returns {Promise<object>} - Location result object
  */
-export const getCurrentLocationWithAddress = async (apiUrl = 'http://localhost:5000') => {
+export const getCurrentLocationWithAddress = async (apiUrl = 'http://localhost:5001') => {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('Tu navegador no soporta geolocalización'))
@@ -144,7 +144,7 @@ export const getCurrentLocationWithAddress = async (apiUrl = 'http://localhost:5
  * @param {string} apiUrl - Base API URL
  * @returns {Promise<object>} - Test result
  */
-export const testGeocodingService = async (apiUrl = 'http://localhost:5000') => {
+export const testGeocodingService = async (apiUrl = 'http://localhost:5001') => {
   // Test with Buenos Aires coordinates (Plaza de Mayo)
   const testLat = -34.6083
   const testLon = -58.3712

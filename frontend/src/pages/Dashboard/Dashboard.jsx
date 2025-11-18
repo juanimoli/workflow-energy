@@ -65,20 +65,93 @@ const Dashboard = () => {
   const [timeframe, setTimeframe] = useState('30')
   const [metrics, setMetrics] = useState(null)
   const [exporting, setExporting] = useState(false)
+  const [teams, setTeams] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [selectedTeam, setSelectedTeam] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState('')
+  const [loadingFilters, setLoadingFilters] = useState(true)
+
+  useEffect(() => {
+    if (user) {
+      loadFilters()
+    }
+  }, [user])
 
   useEffect(() => {
     if (user) {
       loadDashboardMetrics()
     }
-  }, [user, timeframe])
+  }, [user, timeframe, selectedTeam, selectedEmployee])
+
+  useEffect(() => {
+    // Cuando cambia el equipo seleccionado, actualizar la lista de empleados
+    if (selectedTeam) {
+      loadEmployees(selectedTeam)
+    } else {
+      loadEmployees()
+    }
+    // Reset employee selection when team changes
+    setSelectedEmployee('')
+  }, [selectedTeam])
+
+  const loadFilters = async () => {
+    try {
+      setLoadingFilters(true)
+      const token = localStorage.getItem('accessToken')
+      
+      // Only load teams if user has permission (supervisor, admin)
+      if (['supervisor', 'admin'].includes(user?.role)) {
+        const teamsResponse = await axios.get(`${API_BASE_URL}/api/teams`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        setTeams(teamsResponse.data.teams || [])
+      }
+      
+      // Load employees based on role
+      await loadEmployees()
+    } catch (error) {
+      console.error('Error loading filters:', error)
+    } finally {
+      setLoadingFilters(false)
+    }
+  }
+
+  const loadEmployees = async (teamId = null) => {
+    try {
+      const token = localStorage.getItem('accessToken')
+      const params = { limit: 1000 }
+      
+      if (teamId) {
+        params.teamId = teamId
+      }
+      
+      const response = await axios.get(`${API_BASE_URL}/api/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params
+      })
+      setEmployees(response.data.users || [])
+    } catch (error) {
+      console.error('Error loading employees:', error)
+    }
+  }
 
   const loadDashboardMetrics = async () => {
     try {
       setLoading(true)
       const token = localStorage.getItem('accessToken')
+      const params = { timeframe }
+      
+      // Add filters if selected
+      if (selectedTeam) {
+        params.teamId = selectedTeam
+      }
+      if (selectedEmployee) {
+        params.userId = selectedEmployee
+      }
+      
       const response = await axios.get(`${API_BASE_URL}/api/metrics/dashboard`, {
         headers: { Authorization: `Bearer ${token}` },
-        params: { timeframe }
+        params
       })
       setMetrics(response.data)
       setError(null)
@@ -356,13 +429,15 @@ const Dashboard = () => {
           </Typography>
         </Box>
         
-        <Stack direction="row" spacing={2} alignItems="center">
-          <FormControl sx={{ minWidth: 200 }}>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+          {/* Filtro de Período */}
+          <FormControl sx={{ minWidth: 180 }}>
             <InputLabel>Período</InputLabel>
             <Select
               value={timeframe}
               onChange={(e) => setTimeframe(e.target.value)}
               label="Período"
+              disabled={loading}
             >
               <MenuItem value="7">Últimos 7 días</MenuItem>
               <MenuItem value="30">Últimos 30 días</MenuItem>
@@ -371,6 +446,47 @@ const Dashboard = () => {
             </Select>
           </FormControl>
 
+          {/* Filtro de Equipo - Solo para supervisores y admins */}
+          {['supervisor', 'admin'].includes(user?.role) && (
+            <FormControl sx={{ minWidth: 180 }}>
+              <InputLabel>Equipo</InputLabel>
+              <Select
+                value={selectedTeam}
+                onChange={(e) => setSelectedTeam(e.target.value)}
+                label="Equipo"
+                disabled={loading || loadingFilters}
+              >
+                <MenuItem value="">Todos los equipos</MenuItem>
+                {teams.map((team) => (
+                  <MenuItem key={team.id} value={team.id}>
+                    {team.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          {/* Filtro de Empleado - Para team leaders, supervisores y admins */}
+          {['team_leader', 'supervisor', 'admin'].includes(user?.role) && (
+            <FormControl sx={{ minWidth: 200 }}>
+              <InputLabel>Empleado</InputLabel>
+              <Select
+                value={selectedEmployee}
+                onChange={(e) => setSelectedEmployee(e.target.value)}
+                label="Empleado"
+                disabled={loading || loadingFilters}
+              >
+                <MenuItem value="">Todos los empleados</MenuItem>
+                {employees.map((emp) => (
+                  <MenuItem key={emp.id} value={emp.id}>
+                    {emp.first_name} {emp.last_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          {/* Botones de exportación */}
           <Button
             variant="outlined"
             startIcon={<PdfIcon />}
@@ -378,7 +494,7 @@ const Dashboard = () => {
             disabled={exporting}
             color="error"
           >
-            {exporting ? 'Exportando...' : 'Exportar PDF'}
+            {exporting ? 'Exportando...' : 'PDF'}
           </Button>
 
           <Button
@@ -388,7 +504,7 @@ const Dashboard = () => {
             disabled={exporting}
             color="success"
           >
-            {exporting ? 'Exportando...' : 'Exportar Excel'}
+            {exporting ? 'Exportando...' : 'Excel'}
           </Button>
         </Stack>
       </Box>

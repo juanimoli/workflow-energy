@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '')
 
 // Create axios instance with auth interceptor
 const api = axios.create({

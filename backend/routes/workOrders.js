@@ -239,8 +239,10 @@ router.post('/', authenticateToken, [
         work_order_id: newWorkOrder.id,
         user_id: req.user.userId,
         action: 'created',
-        changes: JSON.stringify({ status: 'pending' }),
-        created_at: new Date().toISOString()
+        field_name: 'status',
+        new_value: 'pending',
+        change_reason: 'Orden de trabajo creada',
+        timestamp: new Date().toISOString()
       });
 
     logger.info('Work order created:', {
@@ -363,8 +365,9 @@ router.put('/:id', authenticateToken, authorizeWorkOrderAccess, [
         work_order_id: id,
         user_id: req.user.userId,
         action: 'updated',
-        changes: JSON.stringify(updates),
-        created_at: new Date().toISOString()
+        field_name: 'multiple_fields',
+        change_reason: 'Orden actualizada',
+        timestamp: new Date().toISOString()
       });
 
     res.json({

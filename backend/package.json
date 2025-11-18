@@ -1,7 +1,7 @@
 {
   "name": "work-order-backend",
-  "version": "1.5.0",
-  "description": "Backend API for Work Order Management System - Sprint 6",
+  "version": "1.6.0",
+  "description": "Backend API for Work Order Management System - Sprint 6 (Bug Fixes)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

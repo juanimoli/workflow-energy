@@ -1,6 +1,6 @@
-# Email Setup with Resend.com
+# Email Setup with Nodemailer
 
-This backend uses **Resend.com** for sending password reset emails and other notifications.
+This backend uses **Nodemailer** for sending password reset emails and other notifications via SMTP (Gmail compatible).
 
 ## Quick Setup
 
@@ -10,36 +10,60 @@ Add these environment variables:
 
 ```env
 NODE_ENV=production
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
-EMAIL_FROM=noreply@yourdomain.com
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+EMAIL_FROM_ADDRESS=your-email@gmail.com
 FRONTEND_URL=https://your-production-domain.com
 ```
 
 ### Development (Optional)
 
-If `RESEND_API_KEY` is not set in development, emails will be logged to console and saved to `backend/logs/password-reset-urls.txt`.
+If email credentials are not set in development, emails will be logged to console and saved to `backend/logs/password-reset-urls.txt`.
 
 ```env
 NODE_ENV=development
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx  # Optional for dev
-EMAIL_FROM=noreply@yourdomain.com
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+EMAIL_FROM_ADDRESS=your-email@gmail.com
 FRONTEND_URL=http://localhost:3002
 ```
 
-## Get Your Resend API Key
+## Setup Gmail for Nodemailer
 
-1. **Sign up**: https://resend.com (Free tier: 100 emails/day, 3,000/month)
-2. **Verify your domain** (or use `onboarding@resend.dev` for testing)
-3. **Create API Key**: Dashboard → API Keys → Create API Key
-4. **Copy the key** (starts with `re_`)
-5. **Add to environment**: `RESEND_API_KEY=re_your_key_here`
+### Option 1: App Password (Recommended)
+
+1. **Enable 2FA** on your Gmail account: https://myaccount.google.com/security
+2. **Generate App Password**: 
+   - Go to: https://myaccount.google.com/apppasswords
+   - Select app: "Mail"
+   - Select device: "Other" → Enter "WorkFlow Energy"
+   - Click "Generate"
+3. **Copy the 16-character password** (without spaces)
+4. **Add to environment**: `EMAIL_PASSWORD=your-app-password`
+
+### Option 2: Less Secure Apps (Not Recommended)
+
+If you don't have 2FA enabled:
+1. Go to: https://myaccount.google.com/lesssecureapps
+2. Turn on "Allow less secure apps"
+3. Use your regular Gmail password
 
 ## Environment Variables
 
 ### Required for Production
 
-- `RESEND_API_KEY`: Your Resend API key (starts with `re_`)
-- `EMAIL_FROM`: Verified sender email address
+- `EMAIL_HOST`: SMTP server host (e.g., `smtp.gmail.com`)
+- `EMAIL_PORT`: SMTP port (587 for TLS, 465 for SSL)
+- `EMAIL_SECURE`: Use SSL (true for port 465, false for 587)
+- `EMAIL_USER`: Your email address
+- `EMAIL_PASSWORD`: Your email password or app password
+- `EMAIL_FROM_ADDRESS`: Sender email address (usually same as EMAIL_USER)
 
 ### Optional
 
@@ -69,53 +93,94 @@ curl -X POST http://localhost:5001/api/auth/forgot-password \
 
 ### Development Mode (No API Key)
 
-If `RESEND_API_KEY` is not set in development:
+If email credentials are not set in development:
 
 1. **Console Output**: Reset URL printed to terminal
 2. **File Log**: URLs saved to `backend/logs/password-reset-urls.txt`
 3. **Dev Endpoint**: `GET http://localhost:5001/dev-reset-urls` (only in development)
 
-## Verifying Email Logs
+## Verifying Email Configuration
 
 Check backend startup logs for:
 
 ```
-=== EMAIL CONFIGURATION ===
-Has Resend API Key: true
-EMAIL_FROM: noreply@yourdomain.com
-===========================
+Email service initialized successfully with Nodemailer {
+  host: 'smtp.gmail.com',
+  port: 587,
+  user: 'your-email@gmail.com'
+}
 ```
 
 ## Troubleshooting
 
-### No emails in production
+### No emails being sent
 
-- Verify `RESEND_API_KEY` is set correctly
-- Check `EMAIL_FROM` is a verified sender in Resend dashboard
-- Review backend logs for API errors
+- Verify all EMAIL_* environment variables are set correctly
+- Check EMAIL_PASSWORD is your app password (not regular password)
+- Review backend logs for SMTP connection errors
+- Ensure 2FA is enabled and app password is generated
 
-### Domain verification required
+### Authentication failed
 
-If using a custom domain, you must verify it in Resend:
-- Dashboard → Domains → Add Domain
-- Add DNS records (SPF, DKIM)
-- Wait for verification (usually < 1 hour)
+- If using Gmail: Make sure you're using an **App Password**, not your regular password
+- Enable 2FA on your Google account first
+- Generate a new app password if the current one doesn't work
 
-Or use `onboarding@resend.dev` for testing (limited to verified recipient emails).
+### Connection timeout
 
-### Rate limiting
+- Check EMAIL_HOST and EMAIL_PORT are correct
+- Verify firewall isn't blocking SMTP port (587 or 465)
+- Try EMAIL_SECURE=false for port 587
 
-Free tier limits:
-- 100 emails/day
-- 3,000 emails/month
+### Gmail rate limiting
 
-Upgrade your plan if needed.
+Gmail free accounts have sending limits:
+- 500 emails/day for regular Gmail accounts
+- 2,000 emails/day for Google Workspace accounts
+
+If you exceed limits, wait 24 hours or upgrade to Google Workspace.
 
 ## Production Checklist
 
-- [ ] `RESEND_API_KEY` configured
-- [ ] `EMAIL_FROM` set to verified sender
+- [ ] `EMAIL_HOST` configured (e.g., smtp.gmail.com)
+- [ ] `EMAIL_PORT` set correctly (587 or 465)
+- [ ] `EMAIL_SECURE` matches port (false for 587, true for 465)
+- [ ] `EMAIL_USER` set to your email address
+- [ ] `EMAIL_PASSWORD` set to app password
+- [ ] `EMAIL_FROM_ADDRESS` configured
 - [ ] `NODE_ENV=production`
 - [ ] `FRONTEND_URL` points to production frontend
-- [ ] Domain verified in Resend (if using custom domain)
+- [ ] 2FA enabled on Gmail account
+- [ ] App password generated and tested
 - [ ] Test password reset flow end-to-end
+
+## Alternative SMTP Providers
+
+While this is configured for Gmail, you can use any SMTP provider:
+
+### SendGrid
+```env
+EMAIL_HOST=smtp.sendgrid.net
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=apikey
+EMAIL_PASSWORD=your-sendgrid-api-key
+```
+
+### Mailgun
+```env
+EMAIL_HOST=smtp.mailgun.org
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=postmaster@your-domain.mailgun.org
+EMAIL_PASSWORD=your-mailgun-password
+```
+
+### Outlook/Office365
+```env
+EMAIL_HOST=smtp.office365.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your-email@outlook.com
+EMAIL_PASSWORD=your-password
+```

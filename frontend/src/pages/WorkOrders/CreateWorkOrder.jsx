@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Typography,
   Box,
@@ -29,8 +29,10 @@ import dayjs from 'dayjs'
 
 const CreateWorkOrder = () => {
   const navigate = useNavigate()
+  const { id } = useParams() // Get ID from URL for edit mode
   const { user } = useAuth()
   
+  const isEditMode = Boolean(id)
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState([])
   const [projects, setProjects] = useState([])
@@ -68,16 +70,34 @@ const CreateWorkOrder = () => {
         const projectsResponse = await projectService.getProjects()
         setProjects(projectsResponse.projects || [])
         
+        // If edit mode, load existing work order data
+        if (isEditMode) {
+          const workOrderResponse = await workOrderService.getWorkOrder(id)
+          const wo = workOrderResponse.workOrder
+          
+          setFormData({
+            title: wo.title || '',
+            description: wo.description || '',
+            priority: wo.priority || 'medium',
+            assignedTo: wo.assigned_to || wo.assignedTo || '',
+            projectId: wo.project_id || wo.projectId || '',
+            estimatedHours: wo.estimated_hours || wo.estimatedHours || '',
+            dueDate: wo.due_date ? dayjs(wo.due_date) : null,
+            location: wo.location || '',
+            equipmentId: wo.equipment_id || wo.equipmentId || '',
+          })
+        }
+        
       } catch (error) {
         console.error('Error loading data:', error)
-        toast.error('Error cargando datos del formulario')
+        toast.error(isEditMode ? 'Error cargando la orden de trabajo' : 'Error cargando datos del formulario')
       } finally {
         setLoadingData(false)
       }
     }
 
     loadData()
-  }, [user, user?.role])
+  }, [user, user?.role, id, isEditMode])
 
   const handleChange = (field) => (event) => {
     const value = event.target.value
@@ -142,6 +162,10 @@ const CreateWorkOrder = () => {
       newErrors.title = 'El título es obligatorio'
     }
     
+    if (!formData.description.trim()) {
+      newErrors.description = 'La descripción es obligatoria'
+    }
+    
     if (formData.estimatedHours && (isNaN(formData.estimatedHours) || formData.estimatedHours < 0)) {
       newErrors.estimatedHours = 'Las horas estimadas deben ser un número positivo'
     }
@@ -154,7 +178,7 @@ const CreateWorkOrder = () => {
     event.preventDefault()
     
     if (!validateForm()) {
-      toast.error('Por favor corrige los errores en el formulario')
+      toast.error('Por favor complete los campos obligatorios')
       return
     }
 
@@ -173,19 +197,26 @@ const CreateWorkOrder = () => {
         equipmentId: formData.equipmentId.trim() || null,
       }
 
-      await workOrderService.createWorkOrder(workOrderData)
+      if (isEditMode) {
+        // Update existing work order
+        await workOrderService.updateWorkOrder(id, workOrderData)
+        toast.success('Orden de trabajo actualizada exitosamente')
+      } else {
+        // Create new work order
+        await workOrderService.createWorkOrder(workOrderData)
+        toast.success('Orden de trabajo creada exitosamente')
+      }
       
-      toast.success('Orden de trabajo creada exitosamente')
       navigate('/work-orders')
       
     } catch (error) {
-      console.error('Error creating work order:', error)
-      let errorMessage = 'Error al crear la orden de trabajo'
+      console.error(`Error ${isEditMode ? 'updating' : 'creating'} work order:`, error)
+      let errorMessage = `Error al ${isEditMode ? 'actualizar' : 'crear'} la orden de trabajo`
 
       if (error.response?.status === 401) {
         errorMessage = 'Sesión expirada. Por favor inicia sesión nuevamente.'
       } else if (error.response?.status === 403) {
-        errorMessage = 'No tienes permisos para crear órdenes de trabajo.'
+        errorMessage = `No tienes permisos para ${isEditMode ? 'editar' : 'crear'} órdenes de trabajo.`
       } else if (error.response?.status === 400) {
         // Map server-side validation errors to fields and a friendly toast
         const apiMessage = error.response?.data?.message
@@ -196,7 +227,7 @@ const CreateWorkOrder = () => {
             if (e.field) fieldErrors[e.field] = e.message
           })
           setErrors(prev => ({ ...prev, ...fieldErrors }))
-          errorMessage = apiMessage || 'Por favor completa todos los campos obligatorios'
+          errorMessage = apiMessage || 'Por favor complete los campos obligatorios'
         } else {
           errorMessage = apiMessage || 'Datos inválidos. Verifica la información ingresada.'
         }
@@ -230,7 +261,7 @@ const CreateWorkOrder = () => {
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box>
         <Typography variant="h4" sx={{ mb: 3 }}>
-          Crear Orden de Trabajo
+          {isEditMode ? 'Editar Orden de Trabajo' : 'Crear Orden de Trabajo'}
         </Typography>
         
         <Paper sx={{ p: 3 }}>
@@ -427,7 +458,7 @@ const CreateWorkOrder = () => {
                     disabled={loading}
                     startIcon={loading && <CircularProgress size={20} />}
                   >
-                    {loading ? 'Creando...' : 'Crear Orden'}
+                    {loading ? (isEditMode ? 'Actualizando...' : 'Creando...') : (isEditMode ? 'Actualizar Orden' : 'Crear Orden')}
                   </Button>
                 </Box>
               </Grid>
